@@ -1,5 +1,7 @@
 node_modules/
 dist/
+target/
+kindred.db*
 .env
 *.log
 graphify-out/

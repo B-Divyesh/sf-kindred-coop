@@ -1,0 +1,8 @@
+.git
+node_modules
+target
+dist
+kindred.db*
+graphify-out
+assets/src
+*.log
