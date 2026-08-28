@@ -64,6 +64,7 @@ environment variables when needed.
 - Vite + strict TypeScript, using browser APIs and no runtime framework.
 - Rust 2021, Axum WebSockets, Tokio, and SQLx/SQLite.
 - In-memory, two-seat rooms protected by distinct random role keys.
+- Server-authoritative paid rooms verified against the Sociobot license API.
 - Installable PWA shell with no third-party fonts, scripts, or CDN assets.
 
 Visual rationale and generated-asset provenance are in

@@ -16,8 +16,13 @@ async function jsonRequest<T>(url: string, body: unknown): Promise<T> {
   return result as T;
 }
 
-export const createRoom = (expiryMinutes: number, unlocked: boolean) => jsonRequest<Credentials>('/api/sessions', { expiryMinutes, unlocked });
+export const createRoom = (expiryMinutes: number, license?: string | null) => jsonRequest<Credentials>('/api/sessions', { expiryMinutes, license: license || undefined });
 export const joinRoom = (code: string, key?: string) => jsonRequest<Credentials>(`/api/sessions/${encodeURIComponent(code)}/join`, { key });
+export const unlockRoom = (credentials: Credentials, license: string) => jsonRequest<{ unlocked: boolean }>(`/api/sessions/${encodeURIComponent(credentials.code)}/unlock`, {
+  role: credentials.role,
+  key: credentials.key,
+  license,
+});
 
 export function connectRoom(credentials: Credentials, onState: (state: RoomState) => void, onNetwork: (status: string) => void): WebSocket {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';

@@ -1,4 +1,4 @@
-const CACHE = 'kindred-shell-v1';
+const CACHE = 'kindred-shell-v2';
 const SHELL = ['/manifest.webmanifest', '/icon.svg', '/assets/kindred-hills-720.webp'];
 
 self.addEventListener('install', (event) => {

@@ -9,7 +9,7 @@ FROM rust:1.89-bookworm AS server
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
-ARG BUILD_SHA=unknown
+ARG BUILD_SHA=dev
 ENV BUILD_SHA=${BUILD_SHA}
 RUN cargo build --release --locked
 

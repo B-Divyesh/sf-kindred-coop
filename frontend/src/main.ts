@@ -1,5 +1,5 @@
 import './styles.css';
-import { connectRoom, createRoom, joinRoom, type Credentials, type RoomState } from './api';
+import { connectRoom, createRoom, joinRoom, unlockRoom, type Credentials, type RoomState } from './api';
 import { cachedLicenseState, captureLicenseFromUrl, checkoutUrl, saveLicense, verifyLicense, type LicenseState } from './license';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -43,7 +43,7 @@ function shell(content: string, page: 'home' | 'legal' | 'room' = 'home'): void 
         <a href="/privacy">Privacy</a>
       </nav>
     </header>
-    <main id="main">${content}</main>
+    <main id="main" tabindex="-1">${content}</main>
     <footer>
       <p><strong>Made for two, not for metrics.</strong> No ads, accounts, chat, or behavioral tracking.</p>
       <nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:support@sociobot.in">Help</a></nav>
@@ -144,7 +144,7 @@ function renderRoom(): void {
       <div class="signal-pad" role="group" aria-label="${isHost ? 'Send a signal' : 'Match the signal'}">
         ${options.map(value => `<button class="symbol-button" data-value="${value}" aria-label="${isHost ? 'Send' : 'Choose'} ${labels[value]}"><span aria-hidden="true">${symbols[value]}</span><small>${labels[value]}</small></button>`).join('')}
       </div>
-      <div class="progress-row" aria-live="polite"><span>${room.step} of ${room.totalSteps} matched</span><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="${room.totalSteps}" aria-valuenow="${room.step}"><span style="width:${room.step / room.totalSteps * 100}%"></span></div>${room.attempts ? `<span>Fresh starts: ${room.attempts}</span>` : ''}</div>`;
+      <div class="progress-row" aria-live="polite"><span>${room.step} of ${room.totalSteps} matched</span><div class="progress-track" role="progressbar" aria-label="${escapeHtml(room.puzzleName)} progress" aria-valuemin="0" aria-valuemax="${room.totalSteps}" aria-valuenow="${room.step}"><span style="width:${room.step / room.totalSteps * 100}%"></span></div>${room.attempts ? `<span>Fresh starts: ${room.attempts}</span>` : ''}</div>`;
   }
   shell(`<section class="room-head">
       <div><p class="eyebrow">Field note ${Math.min(room.puzzle + 1, 3)} of 3</p><h1>${escapeHtml(room.puzzleName)}</h1></div>
@@ -195,7 +195,7 @@ async function startRoom(event: SubmitEvent): Promise<void> {
   event.preventDefault(); const form = event.currentTarget as HTMLFormElement;
   const button = form.querySelector('button')!; button.setAttribute('disabled', ''); button.textContent = 'Lighting room…';
   try {
-    credentials = await createRoom(Number(new FormData(form).get('expiry')), license.unlocked);
+    credentials = await createRoom(Number(new FormData(form).get('expiry')), license.token);
     sessionStorage.setItem(`kindred:${credentials.code}:host`, JSON.stringify(credentials));
     history.pushState({}, '', `/?room=${credentials.code}`); connect(credentials);
   } catch (error) { notice = (error as Error).message; renderHome(); }
@@ -233,12 +233,20 @@ async function restoreLicense(event: SubmitEvent): Promise<void> {
   saveLicense(token); license = { token, unlocked: false, checking: true, notice: 'Checking your family license…' };
   room ? renderRoom() : renderHome();
   license = await verifyLicense(token);
-  if (license.unlocked && room && socket?.readyState === WebSocket.OPEN) { send('unlock'); notice = license.notice; }
+  if (license.unlocked && room && credentials) {
+    try {
+      await unlockRoom(credentials, token);
+      notice = 'Family game unlocked for this room.';
+    } catch (error) {
+      license = { ...license, unlocked: false, notice: (error as Error).message };
+      notice = license.notice;
+    }
+  }
   room ? renderRoom() : renderHome();
 }
 
 function renderLegal(kind: 'privacy' | 'terms'): void {
-  const privacy = `<article class="legal"><p class="eyebrow">Plain-language promise · Updated 27 August 2026</p><h1>Privacy, kept small</h1><p class="lede">Kindred Co-op works without names, accounts, chat, ads, or behavioral profiles.</p><h2>What the game handles</h2><p>When a host makes a room, our server keeps a random invite code, two random device keys, the current puzzle, and an expiry time in memory. Signals and puzzle progress are relayed only to that room. Rooms are deleted within five minutes after expiry.</p><h2>What stays on your device</h2><p>Your browser stores the app shell for offline loading, first-run status, and—if you buy or restore the game—a license token and its last verification result. You can remove these by clearing site data.</p><h2>The only measurement</h2><p>We increment one anonymous daily page-view number. We do not store IP addresses, invite links, device fingerprints, or event trails for analytics.</p><h2>Purchases</h2><p>Sociobot and Dodo are the merchant of record and handle checkout and refunds under their own privacy terms. This game receives only a license token; it never sees card details.</p><h2>Parent and device responsibility</h2><p>An adult should choose who receives an invite link and should use normal device safety controls. Anyone with the live link can claim the second seat until the room expires. There is no open chat or public discovery.</p><h2>Questions</h2><p>Email <a href="mailto:privacy@sociobot.in">privacy@sociobot.in</a>.</p></article>`;
+  const privacy = `<article class="legal"><p class="eyebrow">Plain-language promise · Updated 28 August 2026</p><h1>Privacy, kept small</h1><p class="lede">Kindred Co-op works without names, accounts, chat, ads, or behavioral profiles.</p><h2>What the game handles</h2><p>When a host makes a room, our server keeps a random invite code, two random device keys, the current puzzle, and an expiry time in memory. Signals and puzzle progress are relayed only to that room. Rooms are deleted within five minutes after expiry.</p><h2>What stays on your device</h2><p>Your browser stores the app shell for offline loading, first-run status, and—if you buy or restore the game—a license token and its last verification result. You can remove these by clearing site data.</p><h2>The only measurement</h2><p>We increment one anonymous daily page-view number. We do not store IP addresses, invite links, device fingerprints, or event trails for analytics.</p><h2>Purchases</h2><p>Sociobot and Dodo are the merchant of record and handle checkout and refunds under their own privacy terms. When you start or unlock a paid room, our server sends your license token to Sociobot for validation; neither Kindred Co-op nor Sociobot receives card details through the game.</p><h2>Parent and device responsibility</h2><p>An adult should choose who receives an invite link and should use normal device safety controls. Anyone with the live link can claim the second seat until the room expires. There is no open chat or public discovery.</p><h2>Questions</h2><p>Email <a href="mailto:privacy@sociobot.in">privacy@sociobot.in</a>.</p></article>`;
   const terms = `<article class="legal"><p class="eyebrow">Fair play terms · Updated 27 August 2026</p><h1>Terms of play</h1><p class="lede">Kindred Co-op is a small family game, provided as-is with a straightforward one-time license.</p><h2>Using the game</h2><p>You may use Kindred Co-op for personal and family play. Do not disrupt the service, probe other rooms, automate requests, or share an invite publicly. A parent or guardian is responsible for a child’s device, connection, and choice of play partner.</p><h2>Family game license</h2><p>The $8 one-time purchase unlocks all three included puzzles on devices where the license is restored. It is not a subscription. Sociobot/Dodo is the merchant of record; checkout and refunds are handled there. A refunded, expired, revoked, or wrong-product license will stop unlocking paid puzzles.</p><h2>Availability</h2><p>Rooms are temporary and may end when their chosen timer runs out or when the host ends them. Internet access is required for two-player play. The cached shell and instructions may remain available offline, but room signals cannot.</p><h2>Limits</h2><p>To the extent the law allows, the service is supplied without warranties and liability is limited to the amount paid for the license. These terms do not limit rights that cannot legally be limited.</p><h2>Contact</h2><p>Email <a href="mailto:support@sociobot.in">support@sociobot.in</a>.</p></article>`;
   document.title = `${kind === 'privacy' ? 'Privacy' : 'Terms'} — Kindred Co-op`; shell(kind === 'privacy' ? privacy : terms, 'legal'); bindCommon();
 }
@@ -273,10 +281,16 @@ addEventListener('offline', () => {
   room ? renderRoom() : renderHome();
 });
 addEventListener('popstate', () => location.reload());
+document.querySelector<HTMLAnchorElement>('.skip-link')?.addEventListener('click', (event) => {
+  event.preventDefault();
+  const main = document.querySelector<HTMLElement>('#main');
+  main?.focus();
+  main?.scrollIntoView();
+});
 addEventListener('keydown', (event) => {
   if (!room || room.role !== 'guest' || room.puzzle !== 1 || room.status !== 'playing') return;
   const keys: Record<string, string> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
   if (keys[event.key]) { event.preventDefault(); send('answer', keys[event.key]); }
 });
-if ('serviceWorker' in navigator && import.meta.env.PROD) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+if ('serviceWorker' in navigator && import.meta.env.PROD) addEventListener('load', () => navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => {}));
 boot();

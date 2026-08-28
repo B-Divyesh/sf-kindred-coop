@@ -8,7 +8,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::{
@@ -28,10 +28,18 @@ pub struct AppState {
     pub sessions: Sessions,
     pub db: SqlitePool,
     request_times: Arc<Mutex<VecDeque<Instant>>>,
+    billing_base: String,
+    http: reqwest::Client,
 }
 
 impl AppState {
     pub async fn new(database_url: &str) -> anyhow::Result<Self> {
+        let billing_base =
+            std::env::var("BILLING_BASE").unwrap_or_else(|_| "https://api.sociobot.in".into());
+        Self::new_with_billing(database_url, &billing_base).await
+    }
+
+    async fn new_with_billing(database_url: &str, billing_base: &str) -> anyhow::Result<Self> {
         let db = SqlitePoolOptions::new()
             .max_connections(5)
             .connect(database_url)
@@ -41,7 +49,45 @@ impl AppState {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             db,
             request_times: Arc::new(Mutex::new(VecDeque::new())),
+            billing_base: billing_base.trim_end_matches('/').to_owned(),
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(5))
+                .build()?,
         })
+    }
+
+    async fn verify_license(&self, license: &str) -> Result<bool, ApiError> {
+        if license.is_empty() || license.len() > 4_096 {
+            return Ok(false);
+        }
+        let response = self
+            .http
+            .get(format!(
+                "{}/api/v1/products/kindred-coop/verify",
+                self.billing_base
+            ))
+            .query(&[("license", license)])
+            .send()
+            .await
+            .map_err(|_| {
+                ApiError(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "License verification is unavailable. Try again in a moment.",
+                )
+            })?;
+        if !response.status().is_success() {
+            return Err(ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "License verification is unavailable. Try again in a moment.",
+            ));
+        }
+        let verdict = response.json::<LicenseVerdict>().await.map_err(|_| {
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "License verification is unavailable. Try again in a moment.",
+            )
+        })?;
+        Ok(verdict.valid)
     }
     async fn allow_room_request(&self) -> bool {
         let mut times = self.request_times.lock().await;
@@ -82,6 +128,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/page-view", post(page_view))
         .route("/api/sessions", post(create_session))
         .route("/api/sessions/{code}/join", post(join_session))
+        .route("/api/sessions/{code}/unlock", post(unlock_session))
         .route("/api/sessions/{code}/ws", get(websocket))
         .fallback_service(ServeDir::new(dist).fallback(fallback))
         .layer(middleware::from_fn(cache_headers))
@@ -101,19 +148,33 @@ pub fn router(state: AppState) -> Router {
             header::X_FRAME_OPTIONS,
             HeaderValue::from_static("DENY"),
         ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static(
+                "camera=(), microphone=(), geolocation=(), payment=(), browsing-topics=()",
+            ),
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
 async fn cache_headers(request: Request<Body>, next: Next) -> Response {
-    let immutable = request.uri().path().starts_with("/assets/");
+    let path = request.uri().path().to_owned();
     let mut response = next.run(request).await;
-    if immutable {
-        response.headers_mut().insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("public, max-age=31536000, immutable"),
-        );
-    }
+    let policy = if path.starts_with("/assets/") {
+        "public, max-age=31536000, immutable"
+    } else if path.starts_with("/api/") || path == "/health" {
+        "no-store"
+    } else {
+        "no-cache, must-revalidate"
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(policy));
     response
 }
 
@@ -127,10 +188,15 @@ async fn page_view(State(state): State<AppState>) -> StatusCode {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct CreateRequest {
     expiry_minutes: u64,
-    unlocked: Option<bool>,
+    license: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LicenseVerdict {
+    valid: bool,
 }
 
 async fn create_session(
@@ -149,6 +215,11 @@ async fn create_session(
             "Choose a 15, 30, or 60 minute room.",
         ));
     }
+    // Browser cache is only presentation state; billing remains authoritative.
+    let unlocked = match body.license.as_deref() {
+        Some(license) => state.verify_license(license).await.unwrap_or(false),
+        None => false,
+    };
     let mut rooms = state.sessions.write().await;
     if rooms.len() >= 5_000 {
         return Err(ApiError(
@@ -157,7 +228,7 @@ async fn create_session(
         ));
     }
     let room = loop {
-        let candidate = Room::new(body.expiry_minutes, body.unlocked.unwrap_or(false));
+        let candidate = Room::new(body.expiry_minutes, unlocked);
         if !rooms.contains_key(&candidate.code) {
             break candidate;
         }
@@ -165,6 +236,60 @@ async fn create_session(
     let credentials = room.credentials("host", room.host_key.clone());
     rooms.insert(room.code.clone(), room);
     Ok(Json(credentials))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnlockRequest {
+    role: String,
+    key: String,
+    license: String,
+}
+
+#[derive(Serialize)]
+struct UnlockResponse {
+    unlocked: bool,
+}
+
+async fn unlock_session(
+    State(state): State<AppState>,
+    Path(raw_code): Path<String>,
+    Json(body): Json<UnlockRequest>,
+) -> Result<Json<UnlockResponse>, ApiError> {
+    let code = raw_code.trim().to_uppercase();
+    {
+        let rooms = state.sessions.read().await;
+        let room = rooms.get(&code).ok_or(ApiError(
+            StatusCode::NOT_FOUND,
+            "That room was not found. Ask the host for a fresh link.",
+        ))?;
+        if body.role != "host" || body.key != room.host_key {
+            return Err(ApiError(
+                StatusCode::UNAUTHORIZED,
+                "Only this room's host can apply a family license.",
+            ));
+        }
+    }
+    if !state.verify_license(&body.license).await? {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "This license is not active. Restore another license or continue with the free puzzle.",
+        ));
+    }
+    let mut rooms = state.sessions.write().await;
+    let room = rooms.get_mut(&code).ok_or(ApiError(
+        StatusCode::NOT_FOUND,
+        "That room was not found. Ask the host for a fresh link.",
+    ))?;
+    if body.key != room.host_key {
+        return Err(ApiError(
+            StatusCode::UNAUTHORIZED,
+            "Only this room's host can apply a family license.",
+        ));
+    }
+    room.unlocked = true;
+    let _ = room.tx.send(());
+    Ok(Json(UnlockResponse { unlocked: true }))
 }
 
 #[derive(Default, Deserialize)]
@@ -259,7 +384,7 @@ impl IntoResponse for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::Request};
+    use axum::{body::to_bytes, body::Body, extract::Query, http::Request};
     use tower::ServiceExt;
 
     async fn test_app() -> Router {
@@ -296,5 +421,183 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    async fn mock_billing(Query(query): Query<HashMap<String, String>>) -> impl IntoResponse {
+        match query.get("license").map(String::as_str) {
+            Some("valid-family-license") => {
+                (StatusCode::OK, Json(json!({"valid": true, "reason": "ok"})))
+            }
+            Some("unavailable-cached-license") => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error": "offline"})),
+            ),
+            Some("revoked-family-license") => (
+                StatusCode::OK,
+                Json(json!({"valid": false, "reason": "revoked"})),
+            ),
+            _ => (
+                StatusCode::OK,
+                Json(json!({"valid": false, "reason": "invalid"})),
+            ),
+        }
+    }
+
+    async fn state_with_mock_billing() -> AppState {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, Router::new().fallback(get(mock_billing)))
+                .await
+                .unwrap();
+        });
+        AppState::new_with_billing("sqlite::memory:", &format!("http://{address}"))
+            .await
+            .unwrap()
+    }
+
+    async fn post(app: Router, uri: &str, json_body: &'static str) -> Response {
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(Body::from(json_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn rejects_browser_controlled_unlocked_flag() {
+        let response = post(
+            test_app().await,
+            "/api/sessions",
+            r#"{"expiryMinutes":15,"unlocked":true}"#,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn only_valid_billing_verdict_unlocks_new_room() {
+        for (token, expected) in [
+            ("valid-family-license", true),
+            ("forged-client-verdict", false),
+            ("revoked-family-license", false),
+            ("unavailable-cached-license", false),
+        ] {
+            let state = state_with_mock_billing().await;
+            let app = router(state.clone());
+            let body = format!(r#"{{"expiryMinutes":15,"license":"{token}"}}"#);
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/sessions")
+                        .header("content-type", "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                state
+                    .sessions
+                    .read()
+                    .await
+                    .values()
+                    .next()
+                    .unwrap()
+                    .unlocked,
+                expected
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn room_unlock_requires_host_key_and_valid_license() {
+        let state = state_with_mock_billing().await;
+        let app = router(state.clone());
+        let response = post(app.clone(), "/api/sessions", r#"{"expiryMinutes":15}"#).await;
+        let bytes = to_bytes(response.into_body(), 8_192).await.unwrap();
+        let credentials: Value = serde_json::from_slice(&bytes).unwrap();
+        let code = credentials["code"].as_str().unwrap();
+        let key = credentials["key"].as_str().unwrap();
+
+        let invalid =
+            format!(r#"{{"role":"host","key":"{key}","license":"revoked-family-license"}}"#);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/sessions/{code}/unlock"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(invalid))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(!state.sessions.read().await[code].unlocked);
+
+        let valid = format!(r#"{{"role":"host","key":"{key}","license":"valid-family-license"}}"#);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/sessions/{code}/unlock"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(valid))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(state.sessions.read().await[code].unlocked);
+    }
+
+    #[tokio::test]
+    async fn response_policy_covers_security_and_cache_headers() {
+        let app = test_app().await;
+        let health = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(health.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(health
+            .headers()
+            .contains_key(header::STRICT_TRANSPORT_SECURITY));
+        assert!(health.headers().contains_key("permissions-policy"));
+
+        let shell = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            shell.headers()[header::CACHE_CONTROL],
+            "no-cache, must-revalidate"
+        );
+
+        for path in ["/sw.js", "/manifest.webmanifest"] {
+            let response = test_app()
+                .await
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "no-cache, must-revalidate"
+            );
+        }
     }
 }

@@ -260,7 +260,6 @@ async fn handle_message(sessions: &Sessions, code: &str, role: &str, message: Cl
                 room.expires_at = now() + minutes * 60;
             }
         }
-        ("host", "unlock") => room.unlocked = true,
         ("host", "end") => room.expires_at = now(),
         _ => {}
     }
@@ -300,5 +299,25 @@ mod tests {
     #[test]
     fn rejects_arbitrary_messages() {
         assert!(!valid_value("<script>"));
+    }
+
+    #[tokio::test]
+    async fn websocket_unlock_message_cannot_grant_paid_access() {
+        let sessions: Sessions = Arc::new(RwLock::new(HashMap::new()));
+        let room = Room::new(15, false);
+        let code = room.code.clone();
+        sessions.write().await.insert(code.clone(), room);
+        handle_message(
+            &sessions,
+            &code,
+            "host",
+            ClientMessage {
+                kind: "unlock".into(),
+                value: None,
+                expiry_minutes: None,
+            },
+        )
+        .await;
+        assert!(!sessions.read().await[&code].unlocked);
     }
 }

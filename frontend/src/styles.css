@@ -33,7 +33,7 @@ h2 { font-size: clamp(1.9rem, 4vw, 3rem); letter-spacing: -.025em; }
 h3 { font-size: 1.35rem; }
 em { color: var(--tomato-dark); font-weight: normal; }
 :focus-visible { outline: 3px solid var(--tomato); outline-offset: 4px; }
-.skip-link { position: fixed; z-index: 99; top: 8px; left: 8px; padding: 12px 16px; background: var(--night); color: white; transform: translateY(-160%); }
+.skip-link { position: fixed; z-index: 99; top: 8px; left: 8px; min-height: 44px; display: inline-flex; align-items: center; padding: 12px 16px; background: var(--night); color: white; transform: translateY(-160%); }
 .skip-link:focus { transform: translateY(0); }
 
 .site-header, main, footer { width: min(1120px, calc(100% - 40px)); margin-inline: auto; }
@@ -41,6 +41,7 @@ em { color: var(--tomato-dark); font-weight: normal; }
 .wordmark { min-height: 44px; display: inline-flex; gap: 8px; align-items: center; color: var(--ink); font-family: Georgia, serif; font-weight: bold; font-size: 1.15rem; text-decoration: none; }
 .wordmark span { color: var(--tomato); }
 nav { display: flex; align-items: center; gap: 24px; }
+nav a { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 nav a, .text-button { color: var(--ink); font-weight: 700; }
 .text-button { min-height: 44px; border: 0; padding: 8px 2px; background: transparent; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: .25em; cursor: pointer; }
 .text-button:hover, nav a:hover { color: var(--tomato-dark); }
