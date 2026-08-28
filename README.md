@@ -64,7 +64,13 @@ environment variables when needed.
 - Vite + strict TypeScript, using browser APIs and no runtime framework.
 - Rust 2021, Axum WebSockets, Tokio, and SQLx/SQLite.
 - In-memory, two-seat rooms protected by distinct random role keys.
+- The Container App is deliberately pinned to one replica (`min=1`, `max=1`):
+  a room's ephemeral WebSocket relay must share the same process as its create
+  and join requests. Scaling this product requires a shared room relay first.
 - Server-authoritative paid rooms verified against the Sociobot license API.
+- All application routes except `/health` are limited to a 40-request rolling
+  one-second burst per first `X-Forwarded-For` address; limited responses carry
+  `Retry-After: 1`.
 - Installable PWA shell with no third-party fonts, scripts, or CDN assets.
 
 Visual rationale and generated-asset provenance are in

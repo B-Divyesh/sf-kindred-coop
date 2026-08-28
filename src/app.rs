@@ -27,7 +27,7 @@ use tower_http::{
 pub struct AppState {
     pub sessions: Sessions,
     pub db: SqlitePool,
-    request_times: Arc<Mutex<VecDeque<Instant>>>,
+    request_times: Arc<Mutex<HashMap<String, VecDeque<Instant>>>>,
     billing_base: String,
     http: reqwest::Client,
 }
@@ -48,7 +48,7 @@ impl AppState {
         Ok(Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             db,
-            request_times: Arc::new(Mutex::new(VecDeque::new())),
+            request_times: Arc::new(Mutex::new(HashMap::new())),
             billing_base: billing_base.trim_end_matches('/').to_owned(),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(5))
@@ -89,16 +89,21 @@ impl AppState {
         })?;
         Ok(verdict.valid)
     }
-    async fn allow_room_request(&self) -> bool {
+    async fn allow_request(&self, client: &str) -> bool {
         let mut times = self.request_times.lock().await;
-        let cutoff = Instant::now() - Duration::from_secs(60);
-        while times.front().is_some_and(|time| *time < cutoff) {
-            times.pop_front();
-        }
-        if times.len() >= 300 {
+        let now = Instant::now();
+        let cutoff = now - Duration::from_secs(1);
+        times.retain(|_, requests| {
+            while requests.front().is_some_and(|time| *time < cutoff) {
+                requests.pop_front();
+            }
+            !requests.is_empty()
+        });
+        let requests = times.entry(client.to_owned()).or_default();
+        if requests.len() >= 40 {
             return false;
         }
-        times.push_back(Instant::now());
+        requests.push_back(now);
         true
     }
     pub fn spawn_cleanup(&self) {
@@ -131,6 +136,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{code}/unlock", post(unlock_session))
         .route("/api/sessions/{code}/ws", get(websocket))
         .fallback_service(ServeDir::new(dist).fallback(fallback))
+        // Apply this at the router boundary so HTTP, WebSocket upgrade, and
+        // every API route share the same forwarded-client policy. Health is
+        // deliberately exempt so ingress probes cannot be throttled.
+        .layer(middleware::from_fn_with_state(state.clone(), rate_limit))
         .layer(middleware::from_fn(cache_headers))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CONTENT_SECURITY_POLICY,
@@ -160,6 +169,34 @@ pub fn router(state: AppState) -> Router {
         ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+fn client_ip(request: &Request<Body>) -> String {
+    request
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown")
+        .to_owned()
+}
+
+async fn rate_limit(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
+    if request.uri().path() == "/health" || state.allow_request(&client_ip(&request)).await {
+        return next.run(request).await;
+    }
+
+    let mut response = (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(json!({"error": "Too many requests. Wait a moment and try again."})),
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+    response
 }
 
 async fn cache_headers(request: Request<Body>, next: Next) -> Response {
@@ -203,12 +240,6 @@ async fn create_session(
     State(state): State<AppState>,
     Json(body): Json<CreateRequest>,
 ) -> Result<Json<Credentials>, ApiError> {
-    if !state.allow_room_request().await {
-        return Err(ApiError(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many room requests. Wait a minute and try again.",
-        ));
-    }
     if !matches!(body.expiry_minutes, 15 | 30 | 60) {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -302,12 +333,6 @@ async fn join_session(
     Path(raw_code): Path<String>,
     Json(body): Json<JoinRequest>,
 ) -> Result<Json<Credentials>, ApiError> {
-    if !state.allow_room_request().await {
-        return Err(ApiError(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many room requests. Wait a minute and try again.",
-        ));
-    }
     let code = raw_code.trim().to_uppercase();
     if code.len() != 7 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(ApiError(
@@ -598,6 +623,80 @@ mod tests {
                 response.headers()[header::CACHE_CONTROL],
                 "no-cache, must-revalidate"
             );
+        }
+    }
+
+    fn request(method: &str, uri: &str, client: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("x-forwarded-for", client)
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap()
+    }
+
+    async fn exhaust_client(app: &Router, client: &str) {
+        for _ in 0..40 {
+            let response = app
+                .clone()
+                .oneshot(request("POST", "/api/page-view", client))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        }
+    }
+
+    #[tokio::test]
+    async fn rate_limit_uses_first_forwarded_hop_and_supplies_retry_after() {
+        let app = test_app().await;
+        let first_client = "198.51.100.7, 10.0.0.4";
+        exhaust_client(&app, first_client).await;
+
+        let limited = app
+            .clone()
+            .oneshot(request("POST", "/api/page-view", first_client))
+            .await
+            .unwrap();
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(limited.headers()[header::RETRY_AFTER], "1");
+
+        let other_client = app
+            .clone()
+            .oneshot(request("POST", "/api/page-view", "203.0.113.9, 10.0.0.4"))
+            .await
+            .unwrap();
+        assert_eq!(other_client.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn rate_limit_covers_every_route_but_not_health_checks() {
+        for (method, uri) in [
+            ("POST", "/api/page-view"),
+            ("POST", "/api/sessions"),
+            ("POST", "/api/sessions/ABCDEFG/join"),
+            ("POST", "/api/sessions/ABCDEFG/unlock"),
+            ("GET", "/api/sessions/ABCDEFG/ws?role=host&key=nope"),
+            ("GET", "/privacy"),
+        ] {
+            let app = test_app().await;
+            exhaust_client(&app, "192.0.2.55").await;
+            let response = app
+                .oneshot(request(method, uri, "192.0.2.55"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS, "{uri}");
+            assert_eq!(response.headers()[header::RETRY_AFTER], "1", "{uri}");
+        }
+
+        let app = test_app().await;
+        for _ in 0..50 {
+            let response = app
+                .clone()
+                .oneshot(request("GET", "/health", "192.0.2.88"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
         }
     }
 }
