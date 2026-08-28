@@ -12,6 +12,21 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
+    let port_source = if env::var_os("PORT").is_some() {
+        "supplied"
+    } else {
+        "default"
+    };
+    let database_source = if env::var_os("DATABASE_URL").is_some() {
+        "supplied"
+    } else {
+        "default"
+    };
+    let billing_source = if env::var_os("BILLING_BASE").is_some() {
+        "supplied"
+    } else {
+        "default"
+    };
     let port = env::var("PORT")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -23,7 +38,14 @@ async fn main() -> anyhow::Result<()> {
     state.spawn_cleanup();
     let app = app::router(state);
     let address = SocketAddr::from(([0, 0, 0, 0], port));
-    info!(%address, "kindred_coop_started");
+    info!(
+        %address,
+        port_config = port_source,
+        database_config = database_source,
+        billing_config = billing_source,
+        build = option_env!("BUILD_SHA").unwrap_or("development"),
+        "kindred_coop_started"
+    );
     let listener = tokio::net::TcpListener::bind(address).await?;
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown())
