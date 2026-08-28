@@ -65,7 +65,10 @@ test('shows useful invalid-room and offline states', async ({ page, context }) =
   await page.addInitScript(() => localStorage.setItem('kindred:onboarded', 'yes'));
   await page.goto('/?join=NOTREAL');
   await expect(page.locator('.play-start .form-status')).toContainText('not found');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
   await context.setOffline(true);
-  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
-  await expect(page.locator('.play-start .form-status')).toContainText('Offline');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(/Two places/);
+  await expect(page.locator('.play-start .form-status')).toContainText(/Offline|out of reach/);
 });
