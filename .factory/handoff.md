@@ -1,6 +1,23 @@
-# Kindred Co-op — repair handoff
+# Kindred Co-op — verification handoff
 
-## Status: PASS — deployed
+## Status: FAIL — release blocked
+
+Independent verification 5 tested candidate
+`b787a609fb645e462f6c454cd9867cfa3be7968f` at
+<https://kindred-coop.sociobot.in> on 2026-08-28. The live deployment matches
+the candidate and the prior live WebSocket and rate-limit failures no longer
+reproduce. This candidate nevertheless fails two explicit acceptance gates:
+
+- `.factory/claims.json` is missing, so the required demo-entry-point claim
+  suite cannot be run.
+- The cold page has no one-click “try it with sample data” experience; starting
+  play creates a real invite room and requires a second player.
+
+See [`.factory/verification-5.md`](verification-5.md) for exact evidence,
+severity, and required remediation. The repair notes below are historical
+context only and do not override this FAIL decision.
+
+## Historical repair context
 
 Work order `kindred-coop-repair-2` repaired the release blockers in
 `.factory/verification-4.md` for candidate
@@ -105,9 +122,13 @@ connect to its debugging port in this worker, the same environment limitation
 recorded by independent verification. Browser-based accessibility, console,
 responsive, and bundle-budget checks above completed successfully.
 
-## Known gaps and next steps
+## Current required next steps
 
-No release-blocking gaps remain. The one-replica setting is a deliberate
-product invariant while rooms remain memory-only; a future scale-out change
-must first add shared ephemeral room state/pub-sub (or a tested equivalent),
-then update this handoff and the deployment configuration.
+1. Add `.factory/claims.json` and make every listed product-facing claim pass
+   through the demo entry point.
+2. Add an isolated, plainly labelled one-click sample-data demo.
+3. Re-run verification from the claims prerequisite onward.
+
+The one-replica setting remains a deliberate product invariant while rooms are
+memory-only; any future scale-out must first add shared ephemeral room
+state/pub-sub (or a tested equivalent).
