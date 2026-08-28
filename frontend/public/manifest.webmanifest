@@ -1,0 +1,10 @@
+{
+  "name": "Kindred Co-op",
+  "short_name": "Kindred",
+  "description": "A private little co-op game for two people playing apart.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5ebcf",
+  "theme_color": "#f5ebcf",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
