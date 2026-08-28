@@ -1,7 +1,9 @@
 node_modules/
 dist/
 target/
-kindred.db*
+kindred*.db*
+test-results/
+playwright-report/
 .env
 *.log
 graphify-out/

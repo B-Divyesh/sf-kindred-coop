@@ -1,7 +1,9 @@
 use crate::session::{self, Credentials, Room, Sessions};
 use axum::{
+    body::Body,
     extract::{ws::WebSocketUpgrade, Path, Query, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderValue, Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -9,8 +11,12 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::sync::{Mutex, RwLock};
 use tower_http::{
     services::{ServeDir, ServeFile},
     set_header::SetResponseHeaderLayer,
@@ -21,6 +27,7 @@ use tower_http::{
 pub struct AppState {
     pub sessions: Sessions,
     pub db: SqlitePool,
+    request_times: Arc<Mutex<VecDeque<Instant>>>,
 }
 
 impl AppState {
@@ -33,7 +40,20 @@ impl AppState {
         Ok(Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             db,
+            request_times: Arc::new(Mutex::new(VecDeque::new())),
         })
+    }
+    async fn allow_room_request(&self) -> bool {
+        let mut times = self.request_times.lock().await;
+        let cutoff = Instant::now() - Duration::from_secs(60);
+        while times.front().is_some_and(|time| *time < cutoff) {
+            times.pop_front();
+        }
+        if times.len() >= 300 {
+            return false;
+        }
+        times.push_back(Instant::now());
+        true
     }
     pub fn spawn_cleanup(&self) {
         let sessions = self.sessions.clone();
@@ -63,7 +83,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions", post(create_session))
         .route("/api/sessions/{code}/join", post(join_session))
         .route("/api/sessions/{code}/ws", get(websocket))
-        .fallback_service(ServeDir::new(dist).not_found_service(fallback))
+        .fallback_service(ServeDir::new(dist).fallback(fallback))
+        .layer(middleware::from_fn(cache_headers))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self'; connect-src 'self' https://api.sociobot.in https://pilot-api.sociobot.in wss:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"),
+        ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),
@@ -78,6 +103,18 @@ pub fn router(state: AppState) -> Router {
         ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+async fn cache_headers(request: Request<Body>, next: Next) -> Response {
+    let immutable = request.uri().path().starts_with("/assets/");
+    let mut response = next.run(request).await;
+    if immutable {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
+    }
+    response
 }
 
 async fn health() -> Json<Value> {
@@ -100,6 +137,12 @@ async fn create_session(
     State(state): State<AppState>,
     Json(body): Json<CreateRequest>,
 ) -> Result<Json<Credentials>, ApiError> {
+    if !state.allow_room_request().await {
+        return Err(ApiError(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many room requests. Wait a minute and try again.",
+        ));
+    }
     if !matches!(body.expiry_minutes, 15 | 30 | 60) {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -134,6 +177,12 @@ async fn join_session(
     Path(raw_code): Path<String>,
     Json(body): Json<JoinRequest>,
 ) -> Result<Json<Credentials>, ApiError> {
+    if !state.allow_room_request().await {
+        return Err(ApiError(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many room requests. Wait a minute and try again.",
+        ));
+    }
     let code = raw_code.trim().to_uppercase();
     if code.len() != 7 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(ApiError(
