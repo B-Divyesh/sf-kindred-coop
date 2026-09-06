@@ -1,83 +1,106 @@
-# Independent repair verification 6 — PASS
+# Independent verification 6 — PASS
 
-## Release decision
+## Verdict
 
-**PASS.** The two P0 findings from verification 5 are fixed. The deployed
-implementation is `baa33498e4bb43dea2c3fe7e4b45be6249069236`; the claims and
-test contract is `266f5ad3b76c421c1e716f87a1a2e901c703444f`. The latter changes
-tests and documentation only, so the product image correctly remains on the
-implementation SHA.
+**PASS — zero findings; zero untested public claims.**
 
-Live target: <https://kindred-coop.sociobot.in>
+Reviewed implementation candidate: `baa33498e4bb43dea2c3fe7e4b45be6249069236`.
+Documentation head: `bed7136a85c4497d12145c8d996a899d5cdd22e4`.
+Live URL: <https://kindred-coop.sociobot.in>
 
-## P0 disposition
+The live `/health` build identity is `bed7136…`, not `baa3349…`. This is not a
+product-code divergence: `baa3349..bed7136` changes only factory
+documentation, claims-test text, and an end-to-end test. A clean production
+build with `VITE_BUILD_SHA=bed7136…` matched the live HTML, JavaScript, and CSS
+byte for byte. The last implementation change remains `baa3349…`.
 
-### Required claims contract — fixed
+## Job, audience, and first action
 
-`.factory/claims.json` contains seven public claims. Every claim has exactly
-one `@claim:<id>` test and an executable clean command. A fresh clone of
-`266f5ad` ran `npm ci`, then every declared command separately. All passed.
+On fresh 390×844 phone and 1440×900 desktop browsers, before scrolling, the
+page says “Play picture puzzles together,” names a parent and child playing
+apart, and shows “Try it with sample data.” The action remains fully visible
+on both screens.
 
-### One-click sample — fixed
+## Claims from a clean checkout
 
-**Try it with sample data** is visible on the first phone and desktop screen.
-It opens `/demo` in one click with Moon and Leaf already matched and Star ready
-to match. The persistent banner names sample mode and offers reset and exit.
-Fresh live checks completed an invalid-match recovery, reset, and the full
-sample. A separate real license value and real room value remained unchanged.
-The clean home-to-demo flow made no API or third-party request and set no
-cookie.
+A new local clone at `bed7136…` completed `npm ci` (60 packages, 0 reported
+vulnerabilities), then every exact command in `.factory/claims.json`:
 
-## Verification results
-
-| Area | Result and evidence |
+| Claim | Result |
 | --- | --- |
-| Clean setup | PASS — a separate local clone at `266f5ad` completed `npm ci` with 60 packages and 0 vulnerabilities. |
-| Declared claims | PASS — all seven exact commands passed independently. |
-| Unit/integration | PASS — Vitest 3/3 and Rust 15/15. |
-| Static checks | PASS — TypeScript/Cargo check, rustfmt, and strict Clippy. |
-| Production build | PASS — `dist/` produced; exact-SHA release binary built and started with only `PORT`. |
-| Browser suite | PASS — Playwright 1.58.2 Chromium 12/12. |
-| Sample sandbox | PASS — populated output, wrong-input recovery, reset, completion, persistent label, direct entry, and separate storage namespace. |
-| Real data isolation | PASS — demo left license and room sentinels unchanged and issued no room or analytics API request. |
-| Normal co-op path | PASS — fresh live desktop host and phone guest connected, completed the free puzzle, and reached the paid boundary. |
-| Invalid/boundary/recovery | PASS — bad invite, 15/30/60 minute choices, cross-room key rejection, host end, restart loss, offline state, and sample recovery are covered. |
-| Paid entitlement | PASS — recorded valid verifier enables three puzzles; fabricated, revoked, and unavailable verdicts remain locked. Live checkout registration is separately unavailable. |
-| Accessibility | PASS — semantic checks, focus/keyboard, 44 px mobile targets, reduced motion, and live/local Axe with 0 serious/critical issues. |
-| Routes/legal | PASS — unique titles and one h1 for home, demo, privacy, and terms; designed unknown route returns expected HTTP 404. |
-| Privacy | PASS — no analytics request, cookies, external font/script, ad, account, or chat; Sociobot is contacted only when a license is supplied. |
-| Offline/update | PASS — a fresh live context installed the worker, reloaded `/demo` offline, opened cached home, and reported live play offline. |
-| Rate limiting | PASS — live 45-way burst returned 40×200 and 5×429 with `Retry-After: 1`; 50 health checks stayed available. |
-| Runtime policy | PASS — security and cache headers present; one replica; durable `/data` mount preserved. |
-| Bundle/performance | PASS — JS 28.00 KB / 9.42 KB gzip; CSS 15.25 KB / 4.29 KB gzip; mobile hero 50,126 B. Lighthouse 100/100/100/100, LCP 1.50 s, CLS 0, TBT 0 ms. |
-| Candidate/live match | PASS — `/health` returns `baa3349…`; local/live SHA-256 values match for HTML, JS, and CSS. |
+| `sample-demo` | PASS — one browser test passed. |
+| `private-play` | PASS — one browser test passed. |
+| `offline-instructions` | PASS — one browser test passed. |
+| `full-game` | PASS — one browser test passed. |
+| `paid-license` | PASS — one browser test passed. |
+| `temporary-rooms` | PASS — browser test plus both named Rust tests passed. |
+| `rate-limit` | PASS — one browser test passed. |
 
-## Deployment evidence
+All seven claims are listed in the contract and each has an observable,
+tagged test. No unlisted public claim was found on the landing page or README.
 
-- Revision: `sf-kindred-coop--0000011`
-- Image:
-  `sociobotregistry.azurecr.io/sf-kindred-coop@sha256:467ccfc81d9e664c0eabd5129425348f94c3adf1c7ea782144bda525a938715b`
-- `latestRevisionName` equals `latestReadyRevisionName`.
-- `minReplicas=1`, `maxReplicas=1`.
-- Existing `sf-kindred-coop-data` remains mounted at `/data`.
-- Standard URL verification: HTTP 200, correct title/lang/h1/main/alt, and no
-  console error. Its one unlabeled-button count is a hidden license form
-  control; Axe excludes it while hidden and finds no violation.
+The clean checkout also passed `npm test` (3/3), `cargo test --locked`
+(15/15), `npm run check`, `cargo fmt --all -- --check`, strict Clippy,
+`npm run build`, an exact-SHA release build, and `npm run test:e2e` (12/12).
+The build produced `dist/`: JavaScript 28.00 KB (9.42 KB gzip) and CSS 15.25
+KB (4.29 KB gzip).
 
-## Historical findings
+The release binary built with `BUILD_SHA=baa3349…` started with only
+`PORT=8181` and returned that SHA from `/health`.
 
-The intermittent live relay, missing `Retry-After`, browser-trusted paid
-access, active-puzzle progress label, build identity, mobile target sizing,
-and response-hardening findings from verifications 1, 3, and 4 remain fixed.
-This run directly rechecked the live relay, rate policy, paid boundaries,
-identity, targets, active UI accessibility, and headers.
+## Fresh live evidence
 
-## Remaining external dependency
+- Phone and desktop first screens have the plain job, audience, and sample
+  action before scrolling; there is no horizontal overflow or console error.
+- `/demo` begins with Moon and Leaf matched, retains the exact persistent
+  “Demo — sample data, nothing is saved” label, handles a deliberately wrong
+  Moon match, completes Star and Ripple, and resets to the populated state.
+  Real license and room sentinels remained unchanged. Direct demo storage was
+  only `sessionStorage["demo:kindred-coop"]`.
+- A fresh desktop host created a seven-character invite. A fresh phone guest
+  joined it; both connected, completed Moon, Leaf, Star, and Ripple, and the
+  host reached the paid-puzzle lock. No console or page errors occurred.
+- In its own service-worker context, `/demo` reloaded offline after first
+  visit. Leaving it showed the explicit Offline state for live play.
+- Keyboard Tab reached the skip link, whose designed outline measured 3 px;
+  Enter moved focus to `main`. Reduced-motion, 44 px target, and mobile
+  coverage pass in the authored suite.
+- Live Axe scans of the sample found zero serious or critical violations.
+  The full local suite additionally scans home and active/co-op states with
+  zero serious or critical violations.
+- Fresh home-to-demo traffic used only the product origin, made no API call,
+  set no cookie, used no local-storage key, and left only the demo session key.
+  There are no analytics, ads, accounts, third-party scripts, fonts, or chat.
+- Browser checks confirmed route-specific titles and one h1 for `/`, `/demo`,
+  `/privacy`, and `/terms`. Those required pages returned 200. The designed
+  unknown route returned HTTP 404, which is expected and not a defect.
+- Crawled internal links returned 200, aside from the intentional 404 test
+  route. The external checkout URL returned 404 as the known billing
+  registration dependency; no checkout success is claimed.
+- A 45-request live same-client burst returned exactly 40×200 and 5×429;
+  every 429 included `Retry-After: 1`. Fifty `/health` requests returned 200.
+- Live headers include CSP, HSTS, `nosniff`, no-referrer, frame denial,
+  Permissions Policy, and shell revalidation caching.
 
-`GET https://api.sociobot.in/api/v1/products/kindred-coop/checkout` returns
-404. Billing registration is handled by the separate operator. The exact $8
-one-time offer is preserved and written to
-`/work/.evidence/billing-offer.json`; no checkout or entitlement success is
-claimed. The free game remains usable.
+## Earlier findings
 
-There is no remaining release-blocking product defect.
+| Earlier finding | Current disposition |
+| --- | --- |
+| Verification 5: missing claims contract | Fixed; seven exact commands pass from a clean checkout. |
+| Verification 5: no one-click sample | Fixed; visible cold-screen action and direct `/demo` pass. |
+| Verification 4: guest relay 404 | Fixed; fresh desktop-host/phone-guest co-op completed live. |
+| Verification 4: 429 lacked `Retry-After` | Fixed; live exact 40/5 split returned `Retry-After: 1`. |
+| Verification 3: browser-trusted paid access | Fixed; valid, fabricated, revoked, and unavailable paths pass in the claim suite. |
+| Verification 3: unnamed active progress | Fixed; active-game Axe checks pass in the full suite. |
+| Verification 3: build identity | Fixed; `/health` identifies the actual source build. The handoff records implementation and documentation SHAs accurately. |
+| Verification 3: undersized targets and incomplete response policy | Fixed; mobile target and header checks pass. |
+
+## External dependency
+
+Sociobot billing registration remains unavailable: the public checkout route
+returns HTTP 404. This is an expected external dependency recorded by the
+product. The $8 paid puzzles remain gated, and the free puzzle and sample work
+without checkout.
+
+Evidence commands and outputs were run in `/tmp/kindred-coop-verify-6`; the
+required QA result is also copied to `/work/.evidence/qa-report.md`.
