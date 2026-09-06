@@ -10,9 +10,13 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 use std::{
     collections::{HashMap, VecDeque},
+    str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -40,11 +44,24 @@ impl AppState {
     }
 
     async fn new_with_billing(database_url: &str, billing_base: &str) -> anyhow::Result<Self> {
+        let options =
+            SqliteConnectOptions::from_str(database_url)?.busy_timeout(Duration::from_secs(30));
         let db = SqlitePoolOptions::new()
-            .max_connections(5)
-            .connect(database_url)
+            .max_connections(1)
+            .connect_with(options)
             .await?;
-        sqlx::query("CREATE TABLE IF NOT EXISTS page_views (day TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)").execute(&db).await?;
+        let page_views_exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'page_views'",
+        )
+        .fetch_one(&db)
+        .await?;
+        if page_views_exists == 0 {
+            sqlx::query(
+                "CREATE TABLE page_views (day TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)",
+            )
+            .execute(&db)
+            .await?;
+        }
         Ok(Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             db,
