@@ -1,32 +1,45 @@
-# Kindred Co-op — repair 4 handoff
+# Kindred Co-op handoff
 
-## Status: PASS
+## Status
 
-The documented clean setup now works in the order stated in the README.
-`cargo test --locked` no longer requires a prebuilt `dist/` directory.
+**PASS — independent QA verification 7 found zero findings and zero untested public claims.**
 
-## Release
+## Release identity
 
-- Implementation commit and deployed build: `310691eea41475dac6c6ad054b62be27cd5b92cc`
-- Documentation and verification report commit: `d92fc925894f48b46c895c3cb778a763fe16f944`
-- Previous documentation/review baseline: `bebc0cb0887bc5f6e5162b6fb846a25bb5a701dc`
+- Implementation candidate: `310691eea41475dac6c6ad054b62be27cd5b92cc`
+- Live `/health` and documentation build: `22953a1d6a00af63420f8cc7f1bbc24be456da0c`
 - Live product: <https://kindred-coop.sociobot.in>
-- Live `/health`: reports the implementation commit above.
-- Deployed image: `sociobotregistry.azurecr.io/sf-kindred-coop@sha256:d67cc972392d37c0c71d0fd59d2e3e66f454de668d7c1c50b40ef43b434c552c`
-- Deployment keeps one replica and the durable `sf-kindred-coop-data` Azure File mount at `/data`.
 
-## What changed
+The commits between these identifiers change only factory documentation and a
+previous report. A production build made with the live SHA matched the live
+HTML, JavaScript, and CSS byte for byte.
 
-Rust route tests now build their Axum fallback with the committed
-`tests/fixtures/test-shell/index.html` fixture. Production still serves the
-directory selected by `DIST_DIR` (default `dist/`). This keeps the rate-limit
-tests focused on their observable HTTP behavior while allowing a clean Rust
-test run before Vite has built frontend files.
+## What was verified
 
-## Verification
+- The clean README setup passed, including `cargo test --locked` before the
+  frontend build: Vitest 3/3, Rust 15/15, TypeScript/Rust checks, rustfmt,
+  strict Clippy, production build, and Playwright 12/12.
+- All seven exact claim commands in `.factory/claims.json` passed. The
+  temporary-room claim also passed its room-isolation and restart tests.
+- Fresh desktop and phone pages stated the job, audience, and sample action
+  before scrolling. The isolated sample was populated, persistent-labelled,
+  resettable, and did not touch real sentinels or room APIs.
+- Live desktop-host/phone-guest co-op completed the free puzzle and reached
+  the paid boundary. Offline demo reload, keyboard skip focus, reduced motion,
+  mobile layout, route titles, legal pages, designed 404, Axe scans, and
+  normal-load console checks passed.
+- Live valid room-lifetime boundaries, invalid invite recovery, health,
+  security/cache headers, internal links, and the exact 40×200/5×429 allowance
+  with `Retry-After: 1` passed.
+- A release binary built as `310691e…` started with only `PORT=8181` and
+  returned that candidate SHA from `/health`.
 
-From a fresh clone at `310691e`, `dist/` was absent before the commands below.
-The README sequence then passed in this exact order:
+Full evidence is in [verification-7.md](verification-7.md). Live screenshots
+and the required QA copy are in `/work/.evidence/` for this verification run.
+
+## Run and verify
+
+Install Node 22 or newer, npm, and the current stable Rust toolchain, then run:
 
 ```sh
 npm ci
@@ -39,55 +52,11 @@ npm run build
 npm run test:e2e
 ```
 
-- Vitest passed 3/3; Rust passed 15/15 before the frontend build; Playwright
-  passed 12/12. The production build contains 27.97 KB JavaScript (9.38 KB
-  gzip) and 15.25 KB CSS (4.29 KB gzip).
-- Every exact command in `.factory/claims.json` passed from that same clone:
-  sample demo, private play, offline instructions, full game, paid license,
-  temporary rooms plus both Rust boundary tests, and rate limit.
-- A release build compiled with `BUILD_SHA=310691e…` started with only
-  `PORT=8181` and returned that full SHA from `/health`.
-- `/opt/fleet/lib/verify-url.sh` passed against the live origin with no console
-  errors, title/lang, one `h1`, `main`, and complete image alt coverage.
-- Fresh live 1440×900 and 390×844 browsers showed the job (“Play picture
-  puzzles together”), audience (a parent and child playing apart), and **Try
-  it with sample data** before scrolling. Keyboard skip-to-main, phone layout,
-  reduced motion, and Axe serious/critical checks passed.
-- The live sample began populated at two of four matches, kept its persistent
-  sample label, recovered from a wrong match, completed, reset to the seeded
-  state, made no room API request, and left real room/license sentinels
-  unchanged.
-- A fresh desktop host and phone guest created, joined, solved the free puzzle,
-  reached the paid boundary, and ended their temporary room without console
-  errors. A dedicated service-worker context reloaded `/demo` offline.
-- `/`, `/demo`, `/privacy`, and `/terms` returned 200 with their route titles
-  and a single `h1`; the designed unknown page returned its intentional HTTP
-  404. Live security headers include CSP, HSTS, `nosniff`, no-referrer, frame
-  denial, and Permissions Policy.
-- A fresh 45-request live burst returned exactly 40×200 and 5×429; every 429
-  had `Retry-After: 1`. Fifty live `/health` requests returned 200.
+Run every command in `.factory/claims.json` from the same clean setup. Start
+the product locally with `cargo run`; it serves on `PORT` (default 8080).
 
-## Earlier findings
+## Known external dependency
 
-| Finding | Current disposition |
-| --- | --- |
-| Review 1: clean README command order failed before `npm run build` | Fixed and regression-covered by the committed test shell fixture; fresh clone passed. |
-| Verification 5: missing claims contract and one-click sample | Closed; all seven declared claim commands and the populated isolated `/demo` passed. |
-| Verification 4: guest WebSocket 404 and missing retry header | Closed; fresh desktop-host/phone-guest flow and live 40/5 rate test passed. |
-| Verification 3: browser-trusted paid access and unnamed progressbar | Closed; paid-boundary claim, active-room Axe, and server verification paths passed. |
-| Verification 3: build identity, target size, and response policy | Closed; live health SHA, keyboard/mobile checks, and headers passed. |
-
-## External dependency and known gap
-
-The registered Sociobot checkout URL still returns HTTP 404. This is the known
-external billing-registration dependency. The one-time $8 offer remains gated;
-the free puzzle and isolated sample remain usable without checkout. No checkout
-success or entitlement from that unavailable external route is claimed.
-
-## Run and deploy
-
-Use the README commands above for local verification. The product container is
-deployed with the factory product-scoped deployment command and `WO_DATA_DIR=/data`.
-The runtime uses `PORT` (default 8080); temporary room state is intentionally
-in-memory and ends on restart, while the durable mount is retained for product
-state that needs to survive redeploys.
+The Sociobot checkout registration endpoint currently returns HTTP 404. Paid
+puzzles stay server-gated, and no successful checkout is claimed. The free
+puzzle and isolated sample remain available.
