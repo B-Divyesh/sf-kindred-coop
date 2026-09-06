@@ -1,134 +1,127 @@
-# Kindred Co-op — verification handoff
+# Kindred Co-op — repair handoff
 
-## Status: FAIL — release blocked
+## Status: PASS
 
-Independent verification 5 tested candidate
-`b787a609fb645e462f6c454cd9867cfa3be7968f` at
-<https://kindred-coop.sociobot.in> on 2026-08-28. The live deployment matches
-the candidate and the prior live WebSocket and rate-limit failures no longer
-reproduce. This candidate nevertheless fails two explicit acceptance gates:
+Work order `kindred-coop-repair-3` is complete. The live product at
+<https://kindred-coop.sociobot.in> serves implementation
+`baa33498e4bb43dea2c3fe7e4b45be6249069236`. Claim and test documentation is
+at `266f5ad3b76c421c1e716f87a1a2e901c703444f`; the later handoff/report commit
+does not require another product image.
 
-- `.factory/claims.json` is missing, so the required demo-entry-point claim
-  suite cannot be run.
-- The cold page has no one-click “try it with sample data” experience; starting
-  play creates a real invite room and requires a second player.
-
-See [`.factory/verification-5.md`](verification-5.md) for exact evidence,
-severity, and required remediation. The repair notes below are historical
-context only and do not override this FAIL decision.
-
-## Historical repair context
-
-Work order `kindred-coop-repair-2` repaired the release blockers in
-`.factory/verification-4.md` for candidate
-`d042a5c00975b3eb6577f65c745e9bbb78e98975`.
-
-- Repair commit: `c2f3488453ac0036bc1a1d975e8526fd1cb0f85d`
-- Live target: <https://kindred-coop.sociobot.in>
-- Azure revision: `sf-kindred-coop--repair2`
-- Image: `sociobotregistry.azurecr.io/sf-kindred-coop:c2f3488453ac`
-- Image digest: `sha256:f9652ffe39cc9bccc2b30f04afd73cb97810d6f2a3e4385e89a6ac148ff0eb88`
+- Azure revision: `sf-kindred-coop--0000011`
+- Image digest:
+  `sha256:467ccfc81d9e664c0eabd5129425348f94c3adf1c7ea782144bda525a938715b`
+- Scale: one replica (`min=1`, `max=1`)
+- Durable mount: `sf-kindred-coop-data` mounted at `/data`
 
 ## Repairs
 
-- The deployed Container App is now explicitly pinned to one replica
-  (`minReplicas=1`, `maxReplicas=1`). Rooms intentionally remain ephemeral,
-  in-process state, so create, join, and WebSocket upgrade requests now always
-  reach the one room relay. This preserves the product's stated privacy and
-  expiry behavior rather than making rooms durable.
-- A router-bound, per-client rate limiter now covers every route, including
-  page views, create/join/unlock APIs, WebSocket upgrades, and the static
-  fallback. It keys on the first `X-Forwarded-For` hop (with a safe local
-  fallback), permits a 40-request rolling one-second burst, exempts `/health`,
-  and sends `Retry-After: 1` with every 429.
-- README documents the single-replica invariant and rate policy so a future
-  deployment cannot unknowingly split the in-memory relay.
+- Added the required [claims contract](claims.json). Its seven entries each
+  have one tagged, outcome-based browser test and a clean command.
+- Added a visible **Try it with sample data** action to the first screen and a
+  direct `/demo` route. The sample starts with two of four shapes matched,
+  supports a wrong-match recovery, completion, and reset.
+- Kept the exact **Demo — sample data, nothing is saved** banner visible with
+  **Reset demo** and **Start for real**. Sample progress uses only
+  `sessionStorage` key `demo:kindred-coop`; tests prove real license and room
+  values do not change.
+- Rewrote the first screen in plain words. It identifies the job, the parent
+  and child audience, the first action, privacy, offline limits, and the exact
+  one-time price before scrolling on a 390×844 phone and desktop.
+- Added route-specific titles and canonical URLs, `/privacy`, `/terms`, a
+  designed HTTP 404, social metadata, a 1200×630 product image, a touch icon,
+  and `/demo` in the sitemap and offline shell.
+- Removed the anonymous page counter. Azure Files did not provide usable
+  SQLite locking for that optional counter and delayed normal page loads by
+  about two seconds. The product now sends no analytics request and makes no
+  database operation on page load. No user or room data was removed; old
+  aggregate database files were left untouched on the product's mount.
+- Preserved the working one-process WebSocket relay, forwarded-client rate
+  limit, server-authoritative paid license checks, and all three puzzles.
 
-The server-authoritative license path, named progress bar, responsive targets,
-security/cache headers, generated artwork, free puzzle, privacy boundaries,
-and all previously passing behavior were retained.
+## Earlier findings
 
-## Exact regression coverage
+| Finding | Current disposition |
+| --- | --- |
+| Verification 5: missing `.factory/claims.json` | Fixed; seven declared commands pass from a clean clone. |
+| Verification 5: no one-click sample | Fixed; visible on the cold phone and desktop screen, with `/demo` direct entry. |
+| Verification 4: live guest WebSocket 404 | Fixed previously and rechecked on this revision with a fresh desktop host and phone guest. |
+| Verification 4: incomplete 429 response | Fixed previously and rechecked: 40 allowed, 5 limited, every 429 has `Retry-After: 1`. |
+| Verification 3: browser-trusted paid access | Fixed previously; valid, fabricated, revoked, and unavailable verdict paths pass. |
+| Verification 3: active-game accessibility | Fixed previously; live and local Axe scans report no serious or critical issue. |
+| Verification 3: missing build identity | Fixed previously; `/health`, container image, and frontend build identify the deployed SHA. |
+| Verification 3: small mobile targets | Fixed previously; the 390 px target audit passes. |
+| Verification 3: response/cache hardening | Fixed previously; live headers and cache policies pass. |
 
-Rust route tests now prove that:
+## Clean verification
 
-- 40 requests from `198.51.100.7, 10.0.0.4` are accepted, the next receives
-  429 plus `Retry-After: 1`, and a different first forwarded address remains
-  independently accepted;
-- rate limiting applies to page views, session creation, session join, license
-  unlock, WebSocket upgrades, and fallback pages;
-- `/health` remains available after 50 requests from the same client.
+A fresh local clone of `266f5ad` at `/tmp/kindred-claims-clean-266f5ad` ran
+`npm ci` and every exact command in `.factory/claims.json`. All seven claims
+passed: sample isolation/reset, no analytics/cookies/third-party requests,
+offline reload, three-puzzle licensed play with keyboard controls,
+server-authoritative paid access, room timers/end/isolation/restart behavior,
+and the exact rate allowance.
 
-Existing coverage still proves the valid/revoked/fabricated license boundaries,
-WebSocket unlock rejection, security/cache policy, keyboard path, 390px touch
-targets, offline shell recovery, active-game Axe checks, and the full
-two-player three-puzzle journey.
-
-## Verification evidence
-
-Run from `/work/repo` on 2026-08-28:
+The main checkout also passed:
 
 ```sh
-npm ci
-npm audit --audit-level=high
 npm test
 cargo test --locked
 npm run check
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
 npm run build
-BUILD_SHA="$(git rev-parse HEAD)" cargo build --release --locked
+BUILD_SHA=baa33498e4bb43dea2c3fe7e4b45be6249069236 cargo build --release --locked
 npm run test:e2e
 ```
 
-Results:
+Results: Vitest 3/3, Rust 15/15, Playwright 12/12, strict TypeScript and
+Clippy clean. A production build emitted `dist/`; initial JavaScript is
+28.00 KB (9.42 KB gzip), CSS is 15.25 KB (4.29 KB gzip), and the mobile hero
+is 50,126 bytes. The release binary started with only `PORT=8181`, served the
+demo, and returned the implementation SHA.
 
-- Clean `npm ci` installed 60 packages; audit reported 0 vulnerabilities.
-- Vitest passed 3/3. Rust tests passed 12/12. TypeScript/Cargo checks,
-  rustfmt, and strict Clippy passed.
-- The SHA-stamped locked release build passed. Vite emitted `dist/`; JS is
-  22.00 KB (8.16 KB gzip), CSS is 12.92 KB (3.77 KB gzip), and the mobile hero
-  remains 50,126 B. Package/consumer testing is not applicable to this deployed
-  web app.
-- Playwright 1.58.2 Chromium passed 5/5 at desktop and 390x844 mobile:
-  separate contexts completed all puzzles, forged/revoked/unavailable license
-  caches remained at the paid lock, Arrow-key input worked, keyboard skip/focus
-  worked, all tested mobile navigation targets were at least 44px, offline
-  reload worked, and active host/guest Axe serious/critical violations were 0.
-- `az acr build` successfully assembled the actual multi-stage container from a
-  source archive that excluded `.git`.
+The fleet ACR build assembled the multi-stage, non-root container. Local and
+live SHA-256 values match exactly for `index.html`, the JavaScript bundle, and
+the CSS bundle.
 
-Live after deployment:
+## Live verification
 
-- `/health` returned
-  `{"build":"c2f3488453ac0036bc1a1d975e8526fd1cb0f85d","status":"ok"}`.
-  Azure reports ready revision `sf-kindred-coop--repair2`, the image above,
-  and `minReplicas: 1`, `maxReplicas: 1`.
-- 10/10 fresh, isolated journeys with a 1440x900 host and 390x844 guest
-  created a room, joined it, upgraded both WebSockets, reached Moonbeam
-  message, and reported "Together". No prior 404 handshake occurred.
-- A 45-way live `POST /api/page-view` burst yielded exactly 40x204 and 5x429;
-  all 429 responses carried numeric `Retry-After: 1`.
-- Live active-game Axe scans had zero serious/critical violations at desktop
-  and 390px; the desktop keyboard skip link received focus, and the mobile
-  page had no horizontal overflow.
-- Live shell and worker headers confirm CSP, nosniff, no-referrer, frame
-  denial, HSTS, Permissions Policy, and `no-cache, must-revalidate` cache
-  control. The earlier service-worker/offline update behavior is unchanged and
-  covered by the authored browser test.
+- `/health` reports `baa33498…`; latest and latest-ready revision are both
+  `sf-kindred-coop--0000011`.
+- Fresh 390×844 and 1440×900 browsers showed the job, audience, and sample
+  action before scrolling. The sample populated, recovered from an invalid
+  match, reset, completed, kept its banner, made no API request, and did not
+  change real-data sentinels. There were no console or page errors.
+- A fresh desktop host and phone guest joined the same live room, completed
+  Moon, Leaf, Star, and Ripple, and reached the paid boundary.
+- A dedicated offline context reloaded `/demo`, opened the cached home page,
+  and showed that live room play was offline.
+- `/`, `/demo`, `/privacy`, and `/terms` return 200. An unknown route returns
+  the expected designed 404.
+- A 45-way static-route burst returned exactly 40×200 and 5×429; every limited
+  response had `Retry-After: 1`. Fifty health requests remained available.
+- CSP, HSTS, frame denial, no-referrer, nosniff, Permissions Policy, and cache
+  headers are present. The standard URL verifier found no console errors.
+- Live Axe checks at phone and desktop sizes found zero serious or critical
+  violations.
+- Lighthouse 13.4.1 scored 100 for performance, accessibility, best
+  practices, and SEO. LCP was 1.50 s, CLS 0, and total blocking time 0 ms.
 
-Lighthouse was attempted with the supplied Playwright Chromium but could not
-connect to its debugging port in this worker, the same environment limitation
-recorded by independent verification. Browser-based accessibility, console,
-responsive, and bundle-budget checks above completed successfully.
+Evidence is under `/work/.evidence/kindred-coop-repair-3/final`.
 
-## Current required next steps
+## Billing and remaining dependency
 
-1. Add `.factory/claims.json` and make every listed product-facing claim pass
-   through the demo entry point.
-2. Add an isolated, plainly labelled one-click sample-data demo.
-3. Re-run verification from the claims prerequisite onward.
+The advertised offer remains $8 USD once for the two additional puzzles. The
+live Sociobot checkout route currently returns 404, so billing registration is
+still an external operator dependency. Paid content remains gated; it was not
+made free. Public offer metadata is in
+`/work/.evidence/billing-offer.json`, including the return URL and verification
+path. The free puzzle and sample work without billing.
 
-The one-replica setting remains a deliberate product invariant while rooms are
-memory-only; any future scale-out must first add shared ephemeral room
-state/pub-sub (or a tested equivalent).
+The catalog description is 76 characters, starts with a verb, and is copied
+exactly to `/work/.evidence/catalog-description.txt`.
+
+No product defect remains open. A process restart intentionally ends temporary
+rooms, so the deployment must remain at one replica unless the relay design is
+replaced with shared ephemeral state.
