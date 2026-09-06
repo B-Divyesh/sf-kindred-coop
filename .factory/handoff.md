@@ -8,6 +8,7 @@ The documented clean setup now works in the order stated in the README.
 ## Release
 
 - Implementation commit and deployed build: `310691eea41475dac6c6ad054b62be27cd5b92cc`
+- Documentation and verification report commit: `d92fc925894f48b46c895c3cb778a763fe16f944`
 - Previous documentation/review baseline: `bebc0cb0887bc5f6e5162b6fb846a25bb5a701dc`
 - Live product: <https://kindred-coop.sociobot.in>
 - Live `/health`: reports the implementation commit above.
