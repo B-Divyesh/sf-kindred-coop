@@ -1,10 +1,13 @@
 {
   "name": "Kindred Co-op",
   "short_name": "Kindred",
-  "description": "A private little co-op game for two people playing apart.",
+  "description": "Play short picture puzzles with a parent or child in another place.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f5ebcf",
   "theme_color": "#f5ebcf",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
 }

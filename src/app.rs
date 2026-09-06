@@ -202,6 +202,22 @@ async fn rate_limit(State(state): State<AppState>, request: Request<Body>, next:
 async fn cache_headers(request: Request<Body>, next: Next) -> Response {
     let path = request.uri().path().to_owned();
     let mut response = next.run(request).await;
+    let known_page = matches!(path.as_str(), "/" | "/demo" | "/privacy" | "/terms")
+        || path.starts_with("/assets/")
+        || matches!(
+            path.as_str(),
+            "/icon.svg"
+                | "/apple-touch-icon.png"
+                | "/manifest.webmanifest"
+                | "/robots.txt"
+                | "/sitemap.xml"
+                | "/sw.js"
+                | "/health"
+        )
+        || path.starts_with("/api/");
+    if !known_page && response.status() == StatusCode::OK {
+        *response.status_mut() = StatusCode::NOT_FOUND;
+    }
     let policy = if path.starts_with("/assets/") {
         "public, max-age=31536000, immutable"
     } else if path.starts_with("/api/") || path == "/health" {
@@ -255,7 +271,7 @@ async fn create_session(
     if rooms.len() >= 5_000 {
         return Err(ApiError(
             StatusCode::SERVICE_UNAVAILABLE,
-            "All lanterns are busy. Try again soon.",
+            "The game server is busy. Try again soon.",
         ));
     }
     let room = loop {
@@ -586,6 +602,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn room_keys_do_not_cross_room_boundaries() {
+        let state = AppState::new("sqlite::memory:").await.unwrap();
+        let first = Room::new(15, false);
+        let first_code = first.code.clone();
+        let first_guest_key = "FIRST-GUEST-KEY".to_owned();
+        let mut first = first;
+        first.guest_key = Some(first_guest_key.clone());
+
+        let second = Room::new(15, false);
+        let second_code = second.code.clone();
+        let second_guest_key = "SECOND-GUEST-KEY".to_owned();
+        let mut second = second;
+        second.guest_key = Some(second_guest_key.clone());
+
+        state
+            .sessions
+            .write()
+            .await
+            .extend([(first_code.clone(), first), (second_code, second)]);
+        let app = router(state);
+
+        let crossed = format!(r#"{{"key":"{second_guest_key}"}}"#);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/sessions/{first_code}/join"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(crossed))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/sessions/{first_code}/join"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(r#"{{"key":"{first_guest_key}"}}"#)))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn response_policy_covers_security_and_cache_headers() {
         let app = test_app().await;
         let health = app
@@ -624,6 +691,25 @@ mod tests {
                 "no-cache, must-revalidate"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn unknown_page_returns_not_found_with_the_app_shell() {
+        let response = test_app()
+            .await
+            .oneshot(
+                Request::builder()
+                    .uri("/this-page-does-not-exist")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-cache, must-revalidate"
+        );
     }
 
     fn request(method: &str, uri: &str, client: &str) -> Request<Body> {
@@ -698,5 +784,60 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
         }
+    }
+
+    #[tokio::test]
+    async fn restart_keeps_aggregate_count_but_not_room_state() {
+        let database_path = std::env::temp_dir().join(format!(
+            "kindred-restart-{}.db",
+            crate::session::token(12).to_lowercase()
+        ));
+        let database_url = format!("sqlite://{}?mode=rwc", database_path.display());
+
+        let first = AppState::new(&database_url).await.unwrap();
+        page_view(State(first.clone())).await;
+        let room = Room::new(15, false);
+        first.sessions.write().await.insert(room.code.clone(), room);
+        assert_eq!(first.sessions.read().await.len(), 1);
+        first.db.close().await;
+        drop(first);
+
+        let restarted = AppState::new(&database_url).await.unwrap();
+        let page_views: i64 = sqlx::query_scalar("SELECT count FROM page_views")
+            .fetch_one(&restarted.db)
+            .await
+            .unwrap();
+        assert_eq!(page_views, 1);
+        assert!(restarted.sessions.read().await.is_empty());
+        restarted.db.close().await;
+
+        let _ = std::fs::remove_file(&database_path);
+        let _ = std::fs::remove_file(database_path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(database_path.with_extension("db-wal"));
+    }
+
+    #[tokio::test]
+    async fn page_count_table_has_only_day_and_count() {
+        let state = AppState::new("sqlite::memory:").await.unwrap();
+        page_view(State(state.clone())).await;
+        page_view(State(state.clone())).await;
+
+        let columns: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('page_views') ORDER BY cid")
+                .fetch_all(&state.db)
+                .await
+                .unwrap();
+        let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM page_views")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count FROM page_views")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+
+        assert_eq!(columns, ["day", "count"]);
+        assert_eq!(rows, 1);
+        assert_eq!(count, 2);
     }
 }

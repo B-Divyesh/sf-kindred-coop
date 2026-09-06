@@ -3,9 +3,11 @@ WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY frontend ./frontend
+ARG BUILD_SHA=dev
+ENV VITE_BUILD_SHA=${BUILD_SHA}
 RUN npm run build
 
-FROM rust:1.89-bookworm AS server
+FROM rust:1-slim AS server
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src

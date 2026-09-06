@@ -1,5 +1,5 @@
-const CACHE = 'kindred-shell-v2';
-const SHELL = ['/manifest.webmanifest', '/icon.svg', '/assets/kindred-hills-720.webp'];
+const CACHE = 'kindred-shell-v3';
+const SHELL = ['/demo', '/privacy', '/terms', '/manifest.webmanifest', '/icon.svg', '/apple-touch-icon.png', '/assets/kindred-hills-720.webp'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {

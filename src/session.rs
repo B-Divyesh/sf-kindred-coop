@@ -118,21 +118,21 @@ impl Room {
             "playing"
         };
         let puzzle_names = [
-            "Moonbeam message",
-            "Stepping-stone trail",
-            "Moth field notes",
+            "Match four shapes",
+            "Follow four directions",
+            "Match three symbols",
         ];
         let role_note = if role == "host" {
             match self.puzzle {
-                0 => "Send the four marks in the printed order. Your partner will echo each one.",
-                1 => "Guide your partner around the bramble: right, down, right, then up.",
-                _ => "Send the three field marks that identify your moth: crescent, fern, amber.",
+                0 => "Send Moon, Leaf, Star, and Ripple in that order.",
+                1 => "Send Right, Down, Right, and Up in that order.",
+                _ => "Send Crescent, Fern, and Amber in that order.",
             }
         } else {
             match self.puzzle {
-                0 => "Watch for each mark from your Lantern, then tap the matching mark.",
-                1 => "Follow your Lantern's direction one step at a time.",
-                _ => "Collect the three field marks your Lantern sends.",
+                0 => "Watch for each shape, then choose the matching shape.",
+                1 => "Follow each direction one step at a time.",
+                _ => "Choose the three symbols sent by the clue giver.",
             }
         };
         json!({

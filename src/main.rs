@@ -1,6 +1,7 @@
 mod app;
 mod session;
 
+use std::path::Path;
 use std::{env, net::SocketAddr};
 use tokio::signal;
 use tracing::info;
@@ -34,10 +35,14 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(8080);
-    let state = app::AppState::new(
-        &env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://kindred.db?mode=rwc".into()),
-    )
-    .await?;
+    let default_database = if Path::new("/data").is_dir() {
+        "sqlite:///data/kindred.db?mode=rwc"
+    } else {
+        "sqlite://kindred.db?mode=rwc"
+    };
+    let state =
+        app::AppState::new(&env::var("DATABASE_URL").unwrap_or_else(|_| default_database.into()))
+            .await?;
     state.spawn_cleanup();
     let app = app::router(state);
     let address = SocketAddr::from(([0, 0, 0, 0], port));
