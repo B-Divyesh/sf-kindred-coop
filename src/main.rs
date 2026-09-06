@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(8080);
     let default_database = if Path::new("/data").is_dir() {
-        "sqlite:///data/kindred.db?mode=rwc"
+        "sqlite:///data/kindred-v2.db?mode=rwc"
     } else {
         "sqlite://kindred.db?mode=rwc"
     };
