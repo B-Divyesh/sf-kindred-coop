@@ -1,0 +1,14 @@
+{
+  "slug": "kindred-coop",
+  "name": "Kindred Co-op family game",
+  "price_minor": 800,
+  "currency": "USD",
+  "price_type": "one_time_price",
+  "return_url": "https://kindred-coop.sociobot.in/",
+  "price_evidence": "The landing page, in-room paid boundary, terms, and README state $8 once for all three puzzles.",
+  "paid_features": [
+    "Follow four directions puzzle",
+    "Match three symbols puzzle"
+  ],
+  "license_validation_path": "/api/v1/products/kindred-coop/verify"
+}

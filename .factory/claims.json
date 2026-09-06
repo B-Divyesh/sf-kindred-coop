@@ -1,0 +1,58 @@
+[
+  {
+    "id": "sample-demo",
+    "claim": "Try both roles with populated sample data; reset it without changing real game data.",
+    "where": "home first action, /demo, privacy page, README",
+    "test": "npm run test:e2e -- --grep @claim:sample-demo",
+    "sandbox": "fresh phone browser context; sentinel real license and room keys; complete and reset the sample; assert no room API request and no sentinel change"
+  },
+  {
+    "id": "private-play",
+    "claim": "The sample works without an account, ads, behavior tracking, or third-party requests.",
+    "where": "home facts, privacy section, privacy page, README",
+    "test": "npm run test:e2e -- --grep @claim:private-play",
+    "sandbox": "fresh browser context at /demo; exercise a match; record every request and browser storage key"
+  },
+  {
+    "id": "offline-instructions",
+    "claim": "Instructions and the sample demo reload offline after the first visit; live room play needs internet.",
+    "where": "home facts, terms page, README",
+    "test": "npm run test:e2e -- --grep @claim:offline-instructions",
+    "sandbox": "dedicated browser context; visit /demo, wait for its service worker, switch offline, reload demo and home"
+  },
+  {
+    "id": "full-game",
+    "claim": "A valid $8 one-time family license provides three puzzles, including keyboard direction controls.",
+    "where": "home facts and price, terms page, README",
+    "test": "npm run test:e2e -- --grep @claim:full-game",
+    "sandbox": "enter through /demo; mock an active Sociobot license; use separate host and guest contexts; finish all three puzzles and use Arrow keys for directions"
+  },
+  {
+    "id": "paid-license",
+    "claim": "Paid puzzles open only after the server validates an active Sociobot license.",
+    "where": "price section, privacy page, terms page, README",
+    "test": "npm run test:e2e -- --grep @claim:paid-license",
+    "sandbox": "enter through /demo; try fabricated, revoked, and unavailable cached verdicts against the recorded mock verifier; complete the free puzzle and observe the paid lock"
+  },
+  {
+    "id": "temporary-rooms",
+    "claim": "A host can choose a 15, 30, or 60 minute room and end it for both players.",
+    "where": "room form, privacy page, terms page, README",
+    "test": "npm run test:e2e -- --grep @claim:temporary-rooms && cargo test --locked restart_keeps_aggregate_count_but_not_room_state",
+    "sandbox": "enter through /demo; verify all three expiry boundaries against returned times; create and end an isolated room"
+  },
+  {
+    "id": "rate-limit",
+    "claim": "Each client receives a 40-request burst allowance; later requests return 429 with Retry-After: 1.",
+    "where": "README architecture",
+    "test": "npm run test:e2e -- --grep @claim:rate-limit",
+    "sandbox": "start at /demo; send 45 concurrent same-client requests through the running product and assert the exact 40/5 split and every Retry-After header"
+  },
+  {
+    "id": "aggregate-page-count",
+    "claim": "The server stores one aggregate page count per day, with no visitor fields or cookies.",
+    "where": "privacy page, README",
+    "test": "npm run test:e2e -- --grep @claim:aggregate-page-count && cargo test --locked page_count_table_has_only_day_and_count",
+    "sandbox": "fresh home page; record API requests and cookies; then use isolated SQLite to assert the only columns are day and count and repeated views aggregate into one row"
+  }
+]

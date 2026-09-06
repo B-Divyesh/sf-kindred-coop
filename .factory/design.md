@@ -9,10 +9,10 @@ print system**, not pixel-game nostalgia and not a generic card dashboard. The
 print metaphor fits a bounded, ownable family game: finite, calm, tactile, and
 free of the visual language of feeds, stores, streaks, and engagement loops.
 
-The two players are “Lantern” and “Moth”. Their inks—tomato and teal—identify
-their roles, but every state also has a word, shape, or pattern so color is
-never the only signal. Paper texture and dot screens create depth; controls
-remain large, flat, and precise.
+The two roles are “Clue giver” and “Matcher”. Their inks—tomato and
+teal—identify their roles, but every state also has a word, shape, or pattern
+so color is never the only signal. Paper texture and dot screens create depth;
+controls remain large, flat, and precise.
 
 ## Palette
 
@@ -39,7 +39,7 @@ icons/patterns plus labels. Focus is a 3 px tomato outline with a paper gap.
 
 ## Typography
 
-- **Headlines:** Georgia, `Times New Roman`, serif—editorial, storybook-like,
+- **Headlines:** Georgia, `Times New Roman`, serif—editorial and readable,
   already present on every device, with no network font cost.
 - **Interface/body:** Atkinson Hyperlegible, system fallback. A self-hosted WOFF2
   may be added only if the file stays under the 120 KB font budget; otherwise
@@ -66,10 +66,11 @@ shadows.
 - Primary actions look like dark ink stamps: solid, slightly offset shadow,
   and a 2 px pressed translation.
 - Secondary actions are underlined text or paper buttons with hard rules.
-- Network state is a labeled postage mark: “Together”, “Waiting”, “Offline”.
+- Network state is a labeled postage mark: “Both connected”, “Waiting”, or
+  “Offline”.
 - Puzzle feedback arrives as a new printed layer from the element that changed.
-- First-run control cards show one physical action each: **Look**, **Say it
-  aloud**, **Tap one shape**. They are replayable from “How to play”.
+- Control cards show one action each: **Read the clue**, **Send a shape**, and
+  **Match the shape**. They are replayable from “How to play”.
 - Invite codes use tabular figures/letters and explicit copy feedback.
 
 ## Motion policy
@@ -103,6 +104,10 @@ Game symbols (moon, leaf, star, ripple, pine, pebble) are hand-authored inline
 SVG with simple geometry, two-ink fills, and visible text labels. The paper dot
 texture is CSS, keeping controls crisp and downloads small.
 
+The `/demo` screen uses the same printed controls in a side-by-side two-role
+layout. A dark ink status strip remains visible so sample data cannot be
+mistaken for a real room. The mobile layout stacks the roles in play order.
+
 ## Provenance
 
 The hero illustration is generated specifically for Kindred Co-op with the
@@ -110,3 +115,5 @@ factory Azure OpenAI image deployment (`factory-image`) on 2026-08-27 using the
 master prompt above. It is an original product asset; the generated-image
 disclosure appears in the footer. Hand-authored SVG game symbols and CSS
 textures are original to this repository and MIT-licensed with the code.
+The 1200×630 social image and 180×180 touch icon were cropped from that same
+original source on 2026-09-05; no outside asset was added.
