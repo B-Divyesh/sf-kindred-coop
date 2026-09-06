@@ -241,12 +241,20 @@ async fn health() -> Json<Value> {
 }
 
 async fn page_view(State(state): State<AppState>) -> StatusCode {
-    let _ = sqlx::query(
-        "CREATE TABLE IF NOT EXISTS page_views (day TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)",
-    )
-    .execute(&state.db)
-    .await;
-    let _ = sqlx::query("INSERT INTO page_views(day,count) VALUES(date('now'),1) ON CONFLICT(day) DO UPDATE SET count=count+1").execute(&state.db).await;
+    const INCREMENT: &str = "INSERT INTO page_views(day,count) VALUES(date('now'),1) ON CONFLICT(day) DO UPDATE SET count=count+1";
+    if let Err(error) = sqlx::query(INCREMENT).execute(&state.db).await {
+        let table_missing = error
+            .as_database_error()
+            .is_some_and(|database_error| database_error.message().contains("no such table"));
+        if table_missing {
+            let _ = sqlx::query(
+                "CREATE TABLE page_views (day TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)",
+            )
+            .execute(&state.db)
+            .await;
+            let _ = sqlx::query(INCREMENT).execute(&state.db).await;
+        }
+    }
     StatusCode::NO_CONTENT
 }
 
