@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, VecDeque},
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -119,7 +120,13 @@ impl AppState {
 
 pub fn router(state: AppState) -> Router {
     let dist = std::env::var("DIST_DIR").unwrap_or_else(|_| "dist".into());
-    let fallback = ServeFile::new(format!("{dist}/index.html"));
+    router_with_dist(state, PathBuf::from(dist))
+}
+
+// Keeping the static root injectable lets route-level tests exercise the same
+// fallback and middleware as production without requiring Vite to run first.
+fn router_with_dist(state: AppState, dist: PathBuf) -> Router {
+    let fallback = ServeFile::new(dist.join("index.html"));
     Router::new()
         .route("/health", get(health))
         .route("/api/sessions", post(create_session))
@@ -415,7 +422,11 @@ mod tests {
     use tower::ServiceExt;
 
     async fn test_app() -> Router {
-        router(AppState::new().unwrap())
+        router_with_dist(AppState::new().unwrap(), test_shell_dir())
+    }
+
+    fn test_shell_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/test-shell")
     }
 
     #[tokio::test]
