@@ -45,23 +45,11 @@ impl AppState {
 
     async fn new_with_billing(database_url: &str, billing_base: &str) -> anyhow::Result<Self> {
         let options =
-            SqliteConnectOptions::from_str(database_url)?.busy_timeout(Duration::from_secs(30));
+            SqliteConnectOptions::from_str(database_url)?.busy_timeout(Duration::from_secs(2));
         let db = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)
             .await?;
-        let page_views_exists: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'page_views'",
-        )
-        .fetch_one(&db)
-        .await?;
-        if page_views_exists == 0 {
-            sqlx::query(
-                "CREATE TABLE page_views (day TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)",
-            )
-            .execute(&db)
-            .await?;
-        }
         Ok(Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             db,
@@ -253,6 +241,11 @@ async fn health() -> Json<Value> {
 }
 
 async fn page_view(State(state): State<AppState>) -> StatusCode {
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS page_views (day TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)",
+    )
+    .execute(&state.db)
+    .await;
     let _ = sqlx::query("INSERT INTO page_views(day,count) VALUES(date('now'),1) ON CONFLICT(day) DO UPDATE SET count=count+1").execute(&state.db).await;
     StatusCode::NO_CONTENT
 }
