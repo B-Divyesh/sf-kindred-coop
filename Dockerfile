@@ -23,7 +23,6 @@ COPY --from=server /build/target/release/kindred-coop /app/kindred-coop
 COPY --from=web /build/dist /app/dist
 ENV PORT=8080
 ENV DIST_DIR=/app/dist
-ENV DATABASE_URL=sqlite:///data/kindred-v2.db?mode=rwc
 USER kindred
 EXPOSE 8080
 CMD ["/app/kindred-coop"]

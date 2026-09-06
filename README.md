@@ -22,7 +22,7 @@ Live product: <https://kindred-coop.sociobot.in>
 - Offline access to the instructions and sample after the first visit. Live
   room play still needs internet access.
 - A server-checked family license for the two paid puzzles.
-- One aggregate page count per day. The app has no visitor profiles.
+- No analytics requests, tracking cookies, or visitor profiles.
 
 Every public product claim and its clean command are listed in
 [`.factory/claims.json`](.factory/claims.json). The sample data and its isolated
@@ -30,13 +30,12 @@ storage key are documented in [`.factory/demo.md`](.factory/demo.md).
 
 ## Run locally
 
-Install Node 22 or newer, npm, the current stable Rust toolchain, and SQLite
-development libraries.
+Install Node 22 or newer, npm, and the current stable Rust toolchain.
 
 ```sh
 npm ci
 npm run build
-DATABASE_URL='sqlite://kindred.db?mode=rwc' cargo run
+cargo run
 ```
 
 Open <http://localhost:8080>. The sample is at <http://localhost:8080/demo>.
@@ -73,17 +72,15 @@ docker run --rm -p 8080:8080 -v kindred-data:/data kindred-coop
 
 The multi-stage image runs as a non-root user on `PORT`, which defaults to
 `8080`. It serves the Vite build and Axum API from one origin. `/health`
-returns status and the build SHA. SQLite uses `/data` in the image. Outside the
-image, the server uses `/data` when that directory exists and otherwise writes
-beside the process. `DATABASE_URL`, `DIST_DIR`, `PORT`, and `RUST_LOG` may
-override these defaults.
+returns status and the build SHA. The deployment keeps its factory-created
+`/data` mount, though this version does not store user data there. `DIST_DIR`,
+`PORT`, and `RUST_LOG` may override their defaults.
 
 ## Architecture and deployment
 
 - Vite and strict TypeScript use browser APIs without a runtime framework.
-- Rust 2021, Axum WebSockets, Tokio, and SQLx use SQLite for the page count.
-- Room progress stays in process memory. A restart removes rooms but keeps the
-  SQLite page count.
+- Rust 2021, Axum WebSockets, and Tokio serve the site and relay room events.
+- Room progress stays in process memory. A restart removes temporary rooms.
 - The product deployment must keep one replica (`min=1`, `max=1`) because a
   room and its WebSocket relay share one process.
 - All routes except `/health` allow a 40-request burst per first forwarded IP.

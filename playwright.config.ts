@@ -18,7 +18,7 @@ export default defineConfig({
       timeout: 10_000,
     },
     {
-      command: "VITE_BILLING_BASE='http://127.0.0.1:9191' npm run build && BILLING_BASE='http://127.0.0.1:9191' DATABASE_URL='sqlite://kindred-e2e.db?mode=rwc' cargo run",
+      command: "VITE_BILLING_BASE='http://127.0.0.1:9191' npm run build && BILLING_BASE='http://127.0.0.1:9191' cargo run",
       url: 'http://127.0.0.1:8080/health',
       reuseExistingServer: false,
       timeout: 180_000,

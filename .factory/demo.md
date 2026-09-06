@@ -8,5 +8,5 @@
 - Exit: **Start for real** removes sample progress before opening room creation.
 - Isolation: sample progress uses only the `demo:kindred-coop` session-storage
   key. Demo startup does not read license or room keys, call room APIs, create a
-  server room, or increment the aggregate page count. Closing the browser
-  session removes the sample namespace.
+  server room, or send analytics requests. Closing the browser session removes
+  the sample namespace.

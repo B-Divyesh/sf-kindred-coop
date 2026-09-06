@@ -1,7 +1,6 @@
 mod app;
 mod session;
 
-use std::path::Path;
 use std::{env, net::SocketAddr};
 use tokio::signal;
 use tracing::info;
@@ -21,11 +20,6 @@ async fn main() -> anyhow::Result<()> {
     } else {
         "default"
     };
-    let database_source = if env::var_os("DATABASE_URL").is_some() {
-        "supplied"
-    } else {
-        "default"
-    };
     let billing_source = if env::var_os("BILLING_BASE").is_some() {
         "supplied"
     } else {
@@ -35,21 +29,13 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(8080);
-    let default_database = if Path::new("/data").is_dir() {
-        "sqlite:///data/kindred-v2.db?mode=rwc"
-    } else {
-        "sqlite://kindred.db?mode=rwc"
-    };
-    let state =
-        app::AppState::new(&env::var("DATABASE_URL").unwrap_or_else(|_| default_database.into()))
-            .await?;
+    let state = app::AppState::new()?;
     state.spawn_cleanup();
     let app = app::router(state);
     let address = SocketAddr::from(([0, 0, 0, 0], port));
     info!(
         %address,
         port_config = port_source,
-        database_config = database_source,
         billing_config = billing_source,
         build = option_env!("BUILD_SHA").unwrap_or("development"),
         "kindred_coop_started"

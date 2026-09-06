@@ -59,12 +59,13 @@ test('@claim:private-play sample works without accounts, ads, or third-party req
   const requests: string[] = [];
   context.on('request', request => requests.push(request.url()));
   const page = await context.newPage();
-  await page.goto('/demo');
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Try it with sample data' }).click();
   await page.getByRole('button', { name: 'Match Star sample signal' }).click();
   await expect(page.getByText('3 of 4 shapes matched')).toBeVisible();
   expect(await page.locator('input[type="password"], iframe, [class*="ad-"]').count()).toBe(0);
   expect(requests.every(url => new URL(url).origin === 'http://127.0.0.1:8080')).toBe(true);
-  expect(requests.some(url => url.includes('/api/page-view') || url.includes('/api/sessions'))).toBe(false);
+  expect(requests.some(url => new URL(url).pathname.startsWith('/api/'))).toBe(false);
   const storageKeys = await page.evaluate(() => ({ local: Object.keys(localStorage), session: Object.keys(sessionStorage) }));
   expect(storageKeys.local).toEqual([]);
   expect(storageKeys.session).toEqual(['demo:kindred-coop']);
@@ -120,25 +121,13 @@ test('@claim:temporary-rooms offers fixed timers and lets the host end a room', 
 test('@claim:rate-limit returns retry guidance after the 40-request allowance', async ({ page }) => {
   await page.setExtraHTTPHeaders({ 'x-forwarded-for': '192.0.2.108, 10.0.0.4' });
   await page.goto('/demo');
-  const responses = await Promise.all(Array.from({ length: 45 }, () => page.request.post('/api/page-view', {
+  const responses = await Promise.all(Array.from({ length: 45 }, () => page.request.get('/robots.txt', {
     headers: { 'x-forwarded-for': '198.51.100.203, 10.0.0.4' },
   })));
-  expect(responses.filter(response => response.status() === 204)).toHaveLength(40);
+  expect(responses.filter(response => response.status() === 200)).toHaveLength(40);
   const limited = responses.filter(response => response.status() === 429);
   expect(limited).toHaveLength(5);
   expect(limited.every(response => response.headers()['retry-after'] === '1')).toBe(true);
-});
-
-test('@claim:aggregate-page-count sends one same-origin count and sets no cookie', async ({ context, page }) => {
-  await page.setExtraHTTPHeaders({ 'x-forwarded-for': '192.0.2.119, 10.0.0.4' });
-  const apiRequests: string[] = [];
-  page.on('request', request => {
-    if (new URL(request.url()).pathname.startsWith('/api/')) apiRequests.push(request.url());
-  });
-  await page.goto('/');
-  await expect.poll(() => apiRequests).toHaveLength(1);
-  expect(new URL(apiRequests[0]).pathname).toBe('/api/page-view');
-  expect(await context.cookies()).toEqual([]);
 });
 
 test('route titles, 404 response, demo accessibility, and reduced motion are complete', async ({ page }) => {

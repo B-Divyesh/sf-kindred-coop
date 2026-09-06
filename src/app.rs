@@ -10,13 +10,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    SqlitePool,
-};
 use std::{
     collections::{HashMap, VecDeque},
-    str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -30,29 +25,21 @@ use tower_http::{
 #[derive(Clone)]
 pub struct AppState {
     pub sessions: Sessions,
-    pub db: SqlitePool,
     request_times: Arc<Mutex<HashMap<String, VecDeque<Instant>>>>,
     billing_base: String,
     http: reqwest::Client,
 }
 
 impl AppState {
-    pub async fn new(database_url: &str) -> anyhow::Result<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         let billing_base =
             std::env::var("BILLING_BASE").unwrap_or_else(|_| "https://api.sociobot.in".into());
-        Self::new_with_billing(database_url, &billing_base).await
+        Self::new_with_billing(&billing_base)
     }
 
-    async fn new_with_billing(database_url: &str, billing_base: &str) -> anyhow::Result<Self> {
-        let options =
-            SqliteConnectOptions::from_str(database_url)?.busy_timeout(Duration::from_secs(2));
-        let db = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(options)
-            .await?;
+    fn new_with_billing(billing_base: &str) -> anyhow::Result<Self> {
         Ok(Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
-            db,
             request_times: Arc::new(Mutex::new(HashMap::new())),
             billing_base: billing_base.trim_end_matches('/').to_owned(),
             http: reqwest::Client::builder()
@@ -135,7 +122,6 @@ pub fn router(state: AppState) -> Router {
     let fallback = ServeFile::new(format!("{dist}/index.html"));
     Router::new()
         .route("/health", get(health))
-        .route("/api/page-view", post(page_view))
         .route("/api/sessions", post(create_session))
         .route("/api/sessions/{code}/join", post(join_session))
         .route("/api/sessions/{code}/unlock", post(unlock_session))
@@ -238,24 +224,6 @@ async fn cache_headers(request: Request<Body>, next: Next) -> Response {
 
 async fn health() -> Json<Value> {
     Json(json!({"status":"ok", "build": option_env!("BUILD_SHA").unwrap_or("development")}))
-}
-
-async fn page_view(State(state): State<AppState>) -> StatusCode {
-    const INCREMENT: &str = "INSERT INTO page_views(day,count) VALUES(date('now'),1) ON CONFLICT(day) DO UPDATE SET count=count+1";
-    if let Err(error) = sqlx::query(INCREMENT).execute(&state.db).await {
-        let table_missing = error
-            .as_database_error()
-            .is_some_and(|database_error| database_error.message().contains("no such table"));
-        if table_missing {
-            let _ = sqlx::query(
-                "CREATE TABLE page_views (day TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)",
-            )
-            .execute(&state.db)
-            .await;
-            let _ = sqlx::query(INCREMENT).execute(&state.db).await;
-        }
-    }
-    StatusCode::NO_CONTENT
 }
 
 #[derive(Deserialize)]
@@ -447,7 +415,7 @@ mod tests {
     use tower::ServiceExt;
 
     async fn test_app() -> Router {
-        router(AppState::new("sqlite::memory:").await.unwrap())
+        router(AppState::new().unwrap())
     }
 
     #[tokio::test]
@@ -510,9 +478,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        AppState::new_with_billing("sqlite::memory:", &format!("http://{address}"))
-            .await
-            .unwrap()
+        AppState::new_with_billing(&format!("http://{address}")).unwrap()
     }
 
     async fn post(app: Router, uri: &str, json_body: &'static str) -> Response {
@@ -621,7 +587,7 @@ mod tests {
 
     #[tokio::test]
     async fn room_keys_do_not_cross_room_boundaries() {
-        let state = AppState::new("sqlite::memory:").await.unwrap();
+        let state = AppState::new().unwrap();
         let first = Room::new(15, false);
         let first_code = first.code.clone();
         let first_guest_key = "FIRST-GUEST-KEY".to_owned();
@@ -744,10 +710,10 @@ mod tests {
         for _ in 0..40 {
             let response = app
                 .clone()
-                .oneshot(request("POST", "/api/page-view", client))
+                .oneshot(request("GET", "/privacy", client))
                 .await
                 .unwrap();
-            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+            assert_eq!(response.status(), StatusCode::OK);
         }
     }
 
@@ -759,7 +725,7 @@ mod tests {
 
         let limited = app
             .clone()
-            .oneshot(request("POST", "/api/page-view", first_client))
+            .oneshot(request("GET", "/privacy", first_client))
             .await
             .unwrap();
         assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -767,16 +733,15 @@ mod tests {
 
         let other_client = app
             .clone()
-            .oneshot(request("POST", "/api/page-view", "203.0.113.9, 10.0.0.4"))
+            .oneshot(request("GET", "/privacy", "203.0.113.9, 10.0.0.4"))
             .await
             .unwrap();
-        assert_eq!(other_client.status(), StatusCode::NO_CONTENT);
+        assert_eq!(other_client.status(), StatusCode::OK);
     }
 
     #[tokio::test]
     async fn rate_limit_covers_every_route_but_not_health_checks() {
         for (method, uri) in [
-            ("POST", "/api/page-view"),
             ("POST", "/api/sessions"),
             ("POST", "/api/sessions/ABCDEFG/join"),
             ("POST", "/api/sessions/ABCDEFG/unlock"),
@@ -805,57 +770,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn restart_keeps_aggregate_count_but_not_room_state() {
-        let database_path = std::env::temp_dir().join(format!(
-            "kindred-restart-{}.db",
-            crate::session::token(12).to_lowercase()
-        ));
-        let database_url = format!("sqlite://{}?mode=rwc", database_path.display());
-
-        let first = AppState::new(&database_url).await.unwrap();
-        page_view(State(first.clone())).await;
+    async fn restart_drops_temporary_room_state() {
+        let first = AppState::new().unwrap();
         let room = Room::new(15, false);
         first.sessions.write().await.insert(room.code.clone(), room);
         assert_eq!(first.sessions.read().await.len(), 1);
-        first.db.close().await;
         drop(first);
 
-        let restarted = AppState::new(&database_url).await.unwrap();
-        let page_views: i64 = sqlx::query_scalar("SELECT count FROM page_views")
-            .fetch_one(&restarted.db)
-            .await
-            .unwrap();
-        assert_eq!(page_views, 1);
+        let restarted = AppState::new().unwrap();
         assert!(restarted.sessions.read().await.is_empty());
-        restarted.db.close().await;
-
-        let _ = std::fs::remove_file(&database_path);
-        let _ = std::fs::remove_file(database_path.with_extension("db-shm"));
-        let _ = std::fs::remove_file(database_path.with_extension("db-wal"));
-    }
-
-    #[tokio::test]
-    async fn page_count_table_has_only_day_and_count() {
-        let state = AppState::new("sqlite::memory:").await.unwrap();
-        page_view(State(state.clone())).await;
-        page_view(State(state.clone())).await;
-
-        let columns: Vec<String> =
-            sqlx::query_scalar("SELECT name FROM pragma_table_info('page_views') ORDER BY cid")
-                .fetch_all(&state.db)
-                .await
-                .unwrap();
-        let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM page_views")
-            .fetch_one(&state.db)
-            .await
-            .unwrap();
-        let count: i64 = sqlx::query_scalar("SELECT count FROM page_views")
-            .fetch_one(&state.db)
-            .await
-            .unwrap();
-
-        assert_eq!(columns, ["day", "count"]);
-        assert_eq!(rows, 1);
-        assert_eq!(count, 2);
     }
 }
