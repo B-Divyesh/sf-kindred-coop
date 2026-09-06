@@ -69,6 +69,7 @@ test('@claim:private-play sample works without accounts, ads, or third-party req
   const storageKeys = await page.evaluate(() => ({ local: Object.keys(localStorage), session: Object.keys(sessionStorage) }));
   expect(storageKeys.local).toEqual([]);
   expect(storageKeys.session).toEqual(['demo:kindred-coop']);
+  expect(await context.cookies()).toEqual([]);
   await context.close();
 });
 

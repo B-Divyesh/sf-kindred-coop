@@ -36,10 +36,10 @@
   },
   {
     "id": "temporary-rooms",
-    "claim": "A host can choose a 15, 30, or 60 minute room and end it for both players.",
+    "claim": "A host can create an isolated room for one guest, choose 15, 30, or 60 minutes, and end it for both players.",
     "where": "room form, privacy page, terms page, README",
-    "test": "npm run test:e2e -- --grep @claim:temporary-rooms && cargo test --locked restart_drops_temporary_room_state",
-    "sandbox": "enter through /demo; verify all three expiry boundaries against returned times; create and end an isolated room"
+    "test": "npm run test:e2e -- --grep @claim:temporary-rooms && cargo test --locked room_keys_do_not_cross_room_boundaries && cargo test --locked restart_drops_temporary_room_state",
+    "sandbox": "enter through /demo; verify all three expiry boundaries against returned times; create and end a room; prove another room's key cannot enter it"
   },
   {
     "id": "rate-limit",

@@ -1,6 +1,6 @@
 # Landing-page copy audit
 
-Audited 2026-09-05 against the plain-words contract. Word counts treat `$8` as
+Audited 2026-09-06 against the plain-words contract. Word counts treat `$8` as
 one word. No sentence exceeds 22 words. No sentence uses a banned marketing
 word.
 
